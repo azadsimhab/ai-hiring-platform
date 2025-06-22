@@ -1,3 +1,4 @@
+# cloudbuild.yaml (FINAL v4 - Corrects Project ID Variable)
 
 steps:
   # ---------------------------------------------------------------------------
@@ -64,7 +65,7 @@ steps:
     wait_for: ['Deploy Backend to Cloud Run']
 
   # ---------------------------------------------------------------------------
-  # STEP 5: THE FIX - Install compatible Node.js version, then deploy Frontend
+  # STEP 5: THE FINAL FIX - Use the correct $PROJECT_ID environment variable
   # ---------------------------------------------------------------------------
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Deploy Frontend to Firebase'
@@ -72,18 +73,17 @@ steps:
     args:
       - '-c'
       - |
-        # Install curl, then use NodeSource to get a specific Node.js version
-        apt-get update && apt-get install -y curl
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-        apt-get install -y nodejs
+        # Install compatible Node.js version and quiet the output
+        apt-get update > /dev/null && apt-get install -y curl > /dev/null
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash - > /dev/null
+        apt-get install -y nodejs > /dev/null
 
-        # Verify Node.js version is >= 20
-        node -v
-
-        # Now, install and run firebase-tools
+        # Install firebase-tools
         npm install -g firebase-tools
+
+        # Deploy, using the correct $PROJECT_ID environment variable
         cd frontend
-        firebase deploy --project=$$PROJECT_ID --only=hosting --non-interactive --debug
+        firebase deploy --project=$PROJECT_ID --only=hosting --non-interactive --debug
     wait_for: ['Inject Backend URL']
 
 # Define substitutions for our variables
