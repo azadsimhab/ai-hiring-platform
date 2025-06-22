@@ -1,4 +1,5 @@
-# infrastructure/main.tf
+# infrastructure/main.tf (Corrected)
+
 terraform {
   required_providers {
     google = {
@@ -16,7 +17,7 @@ variable "gcp_project_id" {
 variable "gcp_region" {
   description = "The GCP region for resources."
   type        = string
-  default     = "us-central1" # Or your preferred region
+  default     = "us-central1"
 }
 
 provider "google" {
@@ -33,9 +34,9 @@ resource "google_project_service" "apis" {
     "firebasehosting.googleapis.com",
     "sqladmin.googleapis.com"
   ])
-  project                    = var.gcp_project_id
-  service                    = each.key
-  disable_dependency_violation = true
+  project = var.gcp_project_id
+  service = each.key
+  # The 'disable_dependency_violation' argument is removed as it's no longer needed.
 }
 
 # Create the Artifact Registry for our Docker images
@@ -57,7 +58,9 @@ resource "google_cloud_run_v2_service" "backend_service" {
 
   template {
     containers {
-      image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.backend_repo.repository_id}/api-backend:latest"
+      # THE FIX IS HERE: Use a public placeholder image for initial creation.
+      # Our CI/CD pipeline will deploy our actual image over this later.
+      image = "us-docker.pkg.dev/cloudrun/container/hello"
     }
   }
 }
