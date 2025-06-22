@@ -1,0 +1,53 @@
+# cloudbuild.yaml
+steps:
+  # Step 1: Build and push the backend Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest'
+      - './backend'
+    id: 'Build Backend Image'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest']
+    id: 'Push Backend Image'
+
+  # Step 2: Deploy the backend image to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'api-backend'
+      - '--image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest'
+      - '--region'
+      - '${_REGION}'
+      - '--allow-unauthenticated'
+    id: 'Deploy Backend to Cloud Run'
+
+  # Step 3: Inject the backend URL into the frontend HTML
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # Fetch the Cloud Run URL
+        BACKEND_URL=$$(gcloud run services describe api-backend --platform managed --region ${_REGION} --format 'value(status.url)')
+        # Use sed to replace the placeholder URL in the HTML file
+        sed -i "s|YOUR_BACKEND_URL_WILL_GO_HERE|$${BACKEND_URL}|g" frontend/index.html
+    id: 'Inject Backend URL'
+
+  # Step 4: Deploy the frontend to Firebase Hosting
+  - name: 'gcr.io/firebase/firebase'
+    args: ['deploy', '--project=${PROJECT_ID}', '--only=hosting']
+    id: 'Deploy Frontend to Firebase'
+
+# Define substitutions for our variables
+substitutions:
+  _REGION: 'us-central1' # Must match your Terraform region
+  _AR_REPO_NAME: 'ai-hiring-platform-backend' # Must match the repo_id in Terraform
+
+# Specify which images to push to Artifact Registry
+images:
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest'
