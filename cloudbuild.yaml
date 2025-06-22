@@ -1,3 +1,4 @@
+# cloudbuild.yaml (Corrected and Final Version)
 
 steps:
   # Step 1: Build and push the backend Docker image
@@ -32,17 +33,21 @@ steps:
     args:
       - '-c'
       - |
-        # Fetch the Cloud Run URL
         BACKEND_URL=$$(gcloud run services describe api-backend --platform managed --region ${_REGION} --format 'value(status.url)')
-        # Use sed to replace the placeholder URL in the HTML file
         sed -i "s|YOUR_BACKEND_URL_WILL_GO_HERE|$${BACKEND_URL}|g" frontend/index.html
     id: 'Inject Backend URL'
 
-  # Step 4: Deploy the frontend to Firebase Hosting
+  # Step 4: Deploy the frontend to Firebase Hosting (Robust Version)
   - name: 'gcr.io/firebase/firebase'
-    args: ['deploy', '--project=${PROJECT_ID}', '--only=hosting']
+    args: [
+      'deploy',
+      '--project=${PROJECT_ID}',
+      '--only=hosting',
+      '--public=frontend', # Explicitly tells Firebase the public directory is 'frontend'
+      '--non-interactive', # A best practice for CI/CD pipelines
+      '--debug'            # Adds extra logging so we can see exactly what's happening
+    ]
     id: 'Deploy Frontend to Firebase'
-    dir: 'frontend'
 
 # Define substitutions for our variables
 substitutions:
@@ -53,6 +58,5 @@ substitutions:
 images:
   - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest'
 
-# ADD THIS BLOCK TO FIX THE ERROR
 options:
   logging: CLOUD_LOGGING_ONLY
