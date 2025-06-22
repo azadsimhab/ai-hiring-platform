@@ -1,4 +1,3 @@
-# cloudbuild.yaml (FINAL - Corrected Docker Command)
 
 steps:
   # ---------------------------------------------------------------------------
@@ -19,7 +18,6 @@ steps:
 
   # ---------------------------------------------------------------------------
   # STEP 1: Build the backend Docker image
-  # THE FIX IS HERE: Separating build and push back into two steps.
   # ---------------------------------------------------------------------------
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Build Backend Image'
@@ -66,7 +64,7 @@ steps:
     wait_for: ['Deploy Backend to Cloud Run']
 
   # ---------------------------------------------------------------------------
-  # STEP 5: Deploy Frontend by self-installing Firebase tools
+  # STEP 5: THE FIX - Install compatible Node.js version, then deploy Frontend
   # ---------------------------------------------------------------------------
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Deploy Frontend to Firebase'
@@ -74,7 +72,15 @@ steps:
     args:
       - '-c'
       - |
-        apt-get update && apt-get install -y nodejs npm
+        # Install curl, then use NodeSource to get a specific Node.js version
+        apt-get update && apt-get install -y curl
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+        apt-get install -y nodejs
+
+        # Verify Node.js version is >= 20
+        node -v
+
+        # Now, install and run firebase-tools
         npm install -g firebase-tools
         cd frontend
         firebase deploy --project=$$PROJECT_ID --only=hosting --non-interactive --debug
