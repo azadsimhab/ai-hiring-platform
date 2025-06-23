@@ -8,3 +8,6 @@ pydantic-settings
 
 # Required for file uploads with FastAPI
 python-multipart
+
+# Google Cloud AI for Gemini
+google-cloud-aiplatform
