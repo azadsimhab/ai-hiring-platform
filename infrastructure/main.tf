@@ -1,3 +1,5 @@
+# infrastructure/main.tf
+
 terraform {
   required_providers {
     google = {
@@ -35,7 +37,9 @@ resource "google_project_service" "apis" {
     "cloudbuild.googleapis.com",
     "firebasehosting.googleapis.com",
     "sqladmin.googleapis.com",
-    "secretmanager.googleapis.com"
+    "secretmanager.googleapis.com",
+    "aiplatform.googleapis.com",
+    "generativelanguage.googleapis.com"
   ])
   project            = var.gcp_project_id
   service            = each.key
@@ -73,7 +77,6 @@ resource "google_secret_manager_secret" "db_password_secret" {
   secret_id = "db-user-password"
   project   = var.gcp_project_id
 
-  # THE FINAL FIX IS HERE: The block is named 'auto', not 'automatic'.
   replication {
     auto {}
   }
@@ -92,7 +95,6 @@ resource "google_sql_user" "db_user" {
   project  = var.gcp_project_id
 }
 
-
 # --- Application Resources ---
 resource "google_artifact_registry_repository" "backend_repo" {
   location      = var.gcp_region
@@ -109,16 +111,12 @@ resource "google_cloud_run_v2_service" "backend_service" {
   project  = var.gcp_project_id
 
   template {
-    annotations = {
-      "run.googleapis.com/sql-socket-path" = "/cloudsql/${google_sql_database_instance.main_instance.connection_name}"
-    }
     containers {
       image = "us-docker.pkg.dev/cloudrun/container/hello"
     }
   }
   depends_on = [google_sql_database_instance.main_instance]
 }
-
 
 # --- Permissions ---
 resource "google_cloud_run_service_iam_member" "allow_public" {
@@ -129,19 +127,36 @@ resource "google_cloud_run_service_iam_member" "allow_public" {
   member   = "allUsers"
 }
 
-resource "google_secret_manager_secret_iam_member" "allow_run_access_secret" {
+# Permission for the DB Password Secret
+resource "google_secret_manager_secret_iam_member" "allow_run_access_db_secret" {
   project   = google_secret_manager_secret.db_password_secret.project
   secret_id = google_secret_manager_secret.db_password_secret.secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:83797326158-compute@developer.gserviceaccount.com"
 }
 
+# ---------------------------------------------------------------------------
+# THE FIX: Add permission for the GOOGLE_API_KEY secret
+# ---------------------------------------------------------------------------
+data "google_secret_manager_secret" "google_api_key_secret_data" {
+  project   = var.gcp_project_id
+  secret_id = "GOOGLE_API_KEY"
+}
+
+resource "google_secret_manager_secret_iam_member" "allow_run_access_google_api_key" {
+  project   = data.google_secret_manager_secret.google_api_key_secret_data.project
+  secret_id = data.google_secret_manager_secret.google_api_key_secret_data.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:83797326158-compute@developer.gserviceaccount.com"
+}
+
+
+# Permission for Cloud SQL Connection
 resource "google_project_iam_member" "allow_run_connect_sql" {
   project = var.gcp_project_id
   role    = "roles/cloudsql.client"
   member  = "serviceAccount:83797326158-compute@developer.gserviceaccount.com"
 }
-
 
 # --- Outputs ---
 output "backend_service_url" {
