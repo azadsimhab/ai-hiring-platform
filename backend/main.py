@@ -1,10 +1,8 @@
-# backend/main.py (FINAL Corrected Version - Fixes Database Name in Connection String)
-
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy import create_engine
 
 # Import all the modules we've created
 from . import models, schemas, crud
@@ -12,7 +10,7 @@ from .config import settings
 from .database import Base
 
 
-# This function will now handle our database session dependency
+# This function will handle our database session dependency
 def get_db():
     db = SessionLocal()
     try:
@@ -29,7 +27,6 @@ async def lifespan(app: FastAPI):
     global SessionLocal
 
     db_socket_dir = "/cloudsql"
-    # THE FIX IS HERE: Adding the database name to the connection string.
     db_uri = (
         f"postgresql+psycopg2://{settings.DB_USER}:{settings.DB_PASS}@"
         f"/{settings.DB_NAME}?host={db_socket_dir}/{settings.INSTANCE_CONNECTION_NAME}"
@@ -70,13 +67,11 @@ app.add_middleware(
 
 @app.get("/", tags=["Health Check"])
 def read_root():
-    """ A simple root endpoint to confirm the API is running. """
     return {"message": "Hello from the AI Hiring Platform Backend!"}
 
 
 @app.get("/api/v1/status", tags=["Health Check"])
 def get_status():
-    """ Returns the operational status of the API. """
     return {"status": "ok", "service": "Backend API"}
 
 
@@ -84,4 +79,30 @@ def get_status():
 def create_hiring_request_endpoint(
         request: schemas.HiringRequestCreate, db: Session = Depends(get_db)
 ):
+    """
+    Creates a new hiring request from JSON data.
+    """
     return crud.create_hiring_request(db=db, request=request)
+
+
+# ---------------------------------------------------------------------------
+# NEW ENDPOINT FOR FILE UPLOAD AND PARSING
+# ---------------------------------------------------------------------------
+@app.post("/api/v1/hiring-requests/parse-document", response_model=schemas.HiringRequestBase, tags=["Hiring Requests"])
+async def parse_hiring_request_document(file: UploadFile = File(...)):
+    """
+    Accepts a document upload, sends it to a generative AI model for parsing,
+    and returns the extracted data as a JSON object to pre-fill the form.
+    """
+    print(f"INFO:     Received file: {file.filename}, content-type: {file.content_type}")
+
+    # =================================================================
+    # TODO: AI Integration Step (Future Implementation)
+    #
+    # 1. Read the file content: `contents = await file.read()`
+    # 2. Authenticate with Vertex AI.
+    # 3. Call the Gemini API with the file contents and a prompt asking
+    #    it to extract fields into a JSON matching our schema.
+    # =================================================================
+
+    # For now, we
