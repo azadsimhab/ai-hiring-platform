@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -6,21 +7,32 @@ from sqlalchemy.orm import Session
 from . import models, schemas, crud
 from .database import engine, get_db
 
-# This command tells SQLAlchemy to create all tables defined in models.py
-# It will check if the table exists first before creating.
-models.Base.metadata.create_all(bind=engine)
+# This lifespan function will run code on application startup and shutdown
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("INFO:     Application startup...")
+    # On startup, create the database tables
+    print("INFO:     Creating database tables...")
+    # The line below is now safely inside the startup event
+    models.Base.metadata.create_all(bind=engine)
+    print("INFO:     Database tables created successfully.")
+    yield
+    # Code below yield runs on shutdown
+    print("INFO:     Application shutdown.")
 
 
+# Pass the lifespan function to the FastAPI app
 app = FastAPI(
     title="AI Hiring Platform API",
     description="API for managing the AI-powered hiring workflow.",
     version="1.0.0",
+    lifespan=lifespan
 )
 
 # Allow CORS for frontend access
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, change this to your frontend URL
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
