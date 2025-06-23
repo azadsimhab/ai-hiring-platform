@@ -1,25 +1,30 @@
-# cloudbuild.yaml (Corrected --set-env-vars syntax)
+# cloudbuild.yaml
 
 steps:
-  # STEP 0: Enable APIs
+  # STEP 0: Enable all required services.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Enable APIs'
     entrypoint: 'gcloud'
     args: ['services','enable','containerregistry.googleapis.com','artifactregistry.googleapis.com','cloudbuild.googleapis.com','run.googleapis.com','firebase.googleapis.com','iam.googleapis.com','secretmanager.googleapis.com', 'aiplatform.googleapis.com', 'generativelanguage.googleapis.com']
 
-  # STEP 1: Build the backend image
+  # STEP 1: Build the backend image.
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Build Backend Image'
-    args: ['build','--tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest','-f','backend/Dockerfile','.']
+    args:
+      - 'build'
+      - '--tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest'
+      - '-f'
+      - 'backend/Dockerfile'
+      - '.'
     wait_for: ['Enable APIs']
 
-  # STEP 2: Push the backend Docker image
+  # STEP 2: Push the backend Docker image.
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Push Backend Image'
     args: ['push', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest']
     wait_for: ['Build Backend Image']
 
-  # STEP 3: Deploy the backend to Cloud Run
+  # STEP 3: Deploy the backend to Cloud Run.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Deploy Backend to Cloud Run'
     entrypoint: 'gcloud'
@@ -33,7 +38,6 @@ steps:
       - '--allow-unauthenticated'
       - '--add-cloudsql-instances=${PROJECT_ID}:${_REGION}:hiring-platform-main-db'
       - '--update-secrets=DB_PASS=db-user-password:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest'
-      # THE FIX IS HERE: Consolidating all environment variables into a single, comma-separated flag.
       - '--set-env-vars=DB_USER=hiring_app_user,DB_NAME=hiring_platform_db,INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${_REGION}:hiring-platform-main-db,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${_REGION}'
     wait_for: ['Push Backend Image']
 
@@ -44,14 +48,21 @@ steps:
     args:
       - '-c'
       - |
+        # Install a compatible version of Node.js
         apt-get update > /dev/null && apt-get install -y curl > /dev/null
         curl -fsSL https://deb.nodesource.com/setup_20.x | bash - > /dev/null
         apt-get install -y nodejs > /dev/null
+        
+        # THE FIX: Install Firebase Tools globally
         npm install -g firebase-tools
+        
+        # Navigate to frontend, install dependencies, and build the React app
         cd frontend
         npm install
         npm run build
-        firebase deploy --project=$PROJECT_ID --only=hosting --non-interactive
+        
+        # Deploy the contents of the 'build' folder to Firebase
+        firebase deploy --project=$$PROJECT_ID --only=hosting --non-interactive
     wait_for: ['Deploy Backend to Cloud Run']
 
 # Define substitutions
