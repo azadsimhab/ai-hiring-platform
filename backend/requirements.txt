@@ -1,2 +1,8 @@
+
 fastapi
 uvicorn
+
+# Database libraries
+sqlalchemy
+psycopg2-binary
+pydantic-settings
