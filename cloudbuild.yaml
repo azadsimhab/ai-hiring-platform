@@ -1,23 +1,20 @@
+
+
 steps:
-  # STEP 0: Enable APIs
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Enable APIs'
     entrypoint: 'gcloud'
-    args: ['services','enable','containerregistry.googleapis.com','artifactregistry.googleapis.com','cloudbuild.googleapis.com','run.googleapis.com','firebase.googleapis.com','iam.googleapis.com','secretmanager.googleapis.com']
+    args: ['services','enable','containerregistry.googleapis.com','artifactregistry.googleapis.com','cloudbuild.googleapis.com','run.googleapis.com','firebase.googleapis.com','iam.googleapis.com','secretmanager.googleapis.com', 'aiplatform.googleapis.com', 'generativelanguage.googleapis.com']
 
-  # STEP 1: Build the backend image
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Build Backend Image'
-    args: ['build','--tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest','-f','backend/Dockerfile','.']
-    wait_for: ['Enable APIs']
-
-  # STEP 2: Push the backend Docker image
-  - name: 'gcr.io/cloud-builders/docker'
-    id: 'Push Backend Image'
-    args: ['push', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest']
+    args: ['build','--tag=<span class="math-inline">\{\_REGION\}\-docker\.pkg\.dev/</span>{PROJECT_ID}/<span class="math-inline">\{\_AR\_REPO\_NAME\}/api\-backend\:latest','\-f','backend/Dockerfile','\.'\]
+wait\_for\: \['Enable APIs'\]
+\- name\: 'gcr\.io/cloud\-builders/docker'
+id\: 'Push Backend Image'
+args\: \['push', '</span>{_REGION}-docker.pkg.dev/<span class="math-inline">\{PROJECT\_ID\}/</span>{_AR_REPO_NAME}/api-backend:latest']
     wait_for: ['Build Backend Image']
 
-  # STEP 3: Deploy the backend to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Deploy Backend to Cloud Run'
     entrypoint: 'gcloud'
@@ -25,42 +22,30 @@ steps:
       - 'run'
       - 'deploy'
       - 'api-backend'
-      - '--image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest'
-      - '--region'
-      - '${_REGION}'
+      - '--image=<span class="math-inline">\{\_REGION\}\-docker\.pkg\.dev/</span>{PROJECT_ID}/<span class="math-inline">\{\_AR\_REPO\_NAME\}/api\-backend\:latest'
+\- '\-\-region'
+\- '</span>{_REGION}'
       - '--allow-unauthenticated'
-      - '--add-cloudsql-instances=${PROJECT_ID}:${_REGION}:hiring-platform-main-db'
-      - '--set-env-vars=DB_USER=hiring_app_user,DB_NAME=hiring_platform_db,INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${_REGION}:hiring-platform-main-db'
-      - '--update-secrets=DB_PASS=db-user-password:latest'
+      - '--add-cloudsql-instances=<span class="math-inline">\{PROJECT\_ID\}\:</span>{_REGION}:hiring-platform-main-db'
+      # THE FIX IS HERE: Pass the Google API Key as a secret
+      - '--update-secrets=DB_PASS=db-user-password:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest'
+      - '--set-env-vars=DB_USER=hiring_app_user,DB_NAME=hiring_platform_db,INSTANCE_CONNECTION_NAME=<span class="math-inline">\{PROJECT\_ID\}\:</span>{_REGION}:hiring-platform-main-db,GCP_PROJECT_ID=<span class="math-inline">\{PROJECT\_ID\},GCP\_REGION\=</span>{_REGION}'
     wait_for: ['Push Backend Image']
 
-  # ---------------------------------------------------------------------------
-  # STEP 4: THE FIX - Install a compatible Node.js version (v20), then build and deploy
-  # ---------------------------------------------------------------------------
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Build and Deploy Frontend'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        # Install curl, then use NodeSource official script to set up Node.js v20
-        apt-get update > /dev/null && apt-get install -y curl > /dev/null
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-        apt-get install -y nodejs
-        
-        # Now install and use firebase-tools
+        apt-get update > /dev/null && apt-get install -y nodejs npm
         npm install -g firebase-tools
-        
-        # Build the React application
         cd frontend
         npm install
         npm run build
-        
-        # Deploy to Firebase Hosting
         firebase deploy --project=$PROJECT_ID --only=hosting --non-interactive
     wait_for: ['Deploy Backend to Cloud Run']
 
-# Define substitutions
 substitutions:
   _REGION: 'us-central1'
   _AR_REPO_NAME: 'ai-hiring-platform-backend'
