@@ -5,36 +5,18 @@ steps:
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Enable APIs'
     entrypoint: 'gcloud'
-    args:
-      - 'services'
-      - 'enable'
-      - 'containerregistry.googleapis.com'
-      - 'artifactregistry.googleapis.com'
-      - 'cloudbuild.googleapis.com'
-      - 'run.googleapis.com'
-      - 'firebase.googleapis.com'
-      - 'iam.googleapis.com'
-      - 'secretmanager.googleapis.com'
-      - 'aiplatform.googleapis.com'
-      - 'generativelanguage.googleapis.com'
+    args: ['services','enable','containerregistry.googleapis.com','artifactregistry.googleapis.com','cloudbuild.googleapis.com','run.googleapis.com','firebase.googleapis.com','iam.googleapis.com','secretmanager.googleapis.com', 'aiplatform.googleapis.com', 'generativelanguage.googleapis.com']
 
   # STEP 1: Build the backend image
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Build Backend Image'
-    args:
-      - 'build'
-      - '--tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest'
-      - '-f'
-      - 'backend/Dockerfile'
-      - '.'
+    args: ['build','--tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest','-f','backend/Dockerfile','.']
     wait_for: ['Enable APIs']
 
   # STEP 2: Push the backend Docker image
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Push Backend Image'
-    args:
-      - 'push'
-      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest'
+    args: ['push', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest']
     wait_for: ['Build Backend Image']
 
   # STEP 3: Deploy the backend to Cloud Run
@@ -55,24 +37,34 @@ steps:
     wait_for: ['Push Backend Image']
 
   # ---------------------------------------------------------------------------
-  # STEP 4: THE FIX - Build and Deploy Frontend with correctly chained commands
+  # STEP 4: THE FIX - Use Node's official builder for a clean environment
+  # ---------------------------------------------------------------------------
+  - name: 'gcr.io/cloud-builders/npm'
+    id: 'Build Frontend'
+    args: ['install']
+    dir: 'frontend' # Run npm install inside the frontend directory
+    wait_for: ['Deploy Backend to Cloud Run']
+
+  - name: 'gcr.io/cloud-builders/npm'
+    id: 'Create Production Build'
+    args: ['run', 'build']
+    dir: 'frontend' # Run npm run build inside the frontend directory
+    wait_for: ['Build Frontend']
+
+  # ---------------------------------------------------------------------------
+  # STEP 5: Deploy to Firebase
   # ---------------------------------------------------------------------------
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    id: 'Build and Deploy Frontend'
-    entrypoint: 'bash'
+    id: 'Deploy Frontend to Firebase'
+    entrypoint: 'firebase'
     args:
-      - '-c'
-      - |
-        apt-get update -y && \
-        apt-get install -y curl && \
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-        apt-get install -y nodejs && \
-        npm install -g firebase-tools && \
-        cd frontend && \
-        npm install && \
-        npm run build && \
-        firebase deploy --project=$$PROJECT_ID --only=hosting --non-interactive
-    wait_for: ['Deploy Backend to Cloud Run']
+      - 'deploy'
+      - '--project=${PROJECT_ID}'
+      - '--only=hosting'
+      - '--public=frontend/build' # Be explicit about the final build directory path
+      - '--non-interactive'
+    wait_for: ['Create Production Build']
+
 
 # Define substitutions
 substitutions:
