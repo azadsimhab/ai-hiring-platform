@@ -1,4 +1,4 @@
-# backend/main.py (Corrected with a Stable Gemini Model)
+# backend/main.py (FINAL - Using a globally available Gemini 1.0 Pro Vision model)
 
 import json
 from contextlib import asynccontextmanager
@@ -88,8 +88,8 @@ async def parse_hiring_request_document(file: UploadFile = File(...)):
     try:
         file_contents = await file.read()
 
-        # THE FIX IS HERE: Using the latest stable and available model.
-        model = GenerativeModel("gemini-1.5-flash-001")
+        # THE FIX IS HERE: Using the globally available Gemini 1.0 Pro Vision model.
+        model = GenerativeModel("gemini-1.0-pro-vision")
 
         prompt = """
         You are an expert HR assistant. Your task is to analyze the provided hiring request document
