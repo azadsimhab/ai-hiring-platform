@@ -1,4 +1,4 @@
-// frontend/src/BackgroundPaths.js
+// frontend/src/BackgroundPaths.js (Corrected)
 
 "use client";
 import { motion } from "framer-motion";
@@ -18,6 +18,7 @@ function FloatingPaths({ position }) {
   }));
 
   return (
+    // This inner div is already correctly set to ignore pointer events
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
       <svg
         style={{ width: '100%', height: '100%', color: '#0f172a' }}
@@ -50,10 +51,22 @@ function FloatingPaths({ position }) {
   );
 }
 
-// This is the main component we will import into App.js
+
 export function BackgroundPaths() {
   return (
-    <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: -1, backgroundColor: 'white', overflow: 'hidden' }}>
+    // THE FIX IS HERE: We add `pointerEvents: 'none'` to the main container
+    // to make the entire background component "invisible" to the mouse.
+    <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100vw',
+        height: '100vh',
+        zIndex: -1,
+        backgroundColor: 'white',
+        overflow: 'hidden',
+        pointerEvents: 'none' // This makes clicks "pass through"
+    }}>
       <div style={{ position: 'absolute', inset: 0 }}>
         <FloatingPaths position={1} />
         <FloatingPaths position={-1} />
