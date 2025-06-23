@@ -1,4 +1,4 @@
-# backend/main.py (FINAL Corrected Version with Proper Startup Logic)
+# backend/main.py (FINAL Corrected Version - Fixes Database Name in Connection String)
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
@@ -14,8 +14,6 @@ from .database import Base
 
 # This function will now handle our database session dependency
 def get_db():
-    # This function will be called for each request, but the SessionLocal
-    # itself will only be created once at startup.
     db = SessionLocal()
     try:
         yield db
@@ -28,27 +26,23 @@ def get_db():
 async def lifespan(app: FastAPI):
     print("INFO:     Application startup...")
 
-    # --- Database Connection Logic ---
-    # Moved from database.py to here to prevent race condition.
-    # This code now runs ONLY after the app has started.
     global SessionLocal
 
     db_socket_dir = "/cloudsql"
+    # THE FIX IS HERE: Adding the database name to the connection string.
     db_uri = (
         f"postgresql+psycopg2://{settings.DB_USER}:{settings.DB_PASS}@"
-        f"?host={db_socket_dir}/{settings.INSTANCE_CONNECTION_NAME}"
+        f"/{settings.DB_NAME}?host={db_socket_dir}/{settings.INSTANCE_CONNECTION_NAME}"
     )
 
     engine = create_engine(db_uri)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-    # --- Database Table Creation ---
     print("INFO:     Creating database tables...")
     Base.metadata.create_all(bind=engine)
     print("INFO:     Database tables created successfully.")
 
     yield
-    # Code below yield runs on shutdown
     print("INFO:     Application shutdown.")
 
 
@@ -76,11 +70,13 @@ app.add_middleware(
 
 @app.get("/", tags=["Health Check"])
 def read_root():
+    """ A simple root endpoint to confirm the API is running. """
     return {"message": "Hello from the AI Hiring Platform Backend!"}
 
 
 @app.get("/api/v1/status", tags=["Health Check"])
 def get_status():
+    """ Returns the operational status of the API. """
     return {"status": "ok", "service": "Backend API"}
 
 
