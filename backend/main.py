@@ -1,4 +1,4 @@
-# backend/main.py (Final version with clean mock data)
+# backend/main.py (Final version with 100% clean mock data)
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, File, UploadFile
@@ -78,13 +78,9 @@ def create_hiring_request_endpoint(
 async def parse_hiring_request_document(file: UploadFile = File(...)):
     print(f"INFO:     Received file: {file.filename}, content-type: {file.content_type}")
 
-    # =================================================================
-    # TODO: AI Integration Step (Future Implementation)
-    # =================================================================
-
-    # This mock data no longer has the "Parsed:" prefix.
+    # THE FIX IS HERE: The mock data is now 100% clean.
     mock_extracted_data = {
-        "job_title": "Senior AI Engineer (from Document)",
+        "job_title": "Senior AI Engineer",
         "department": "Research and Development",
         "manager": "Dr. Eva Rostova",
         "level": "L5",
@@ -92,7 +88,7 @@ async def parse_hiring_request_document(file: UploadFile = File(...)):
         "benefits_perks": "Full health coverage and unlimited PTO.",
         "locations": "Remote, USA",
         "urgency": "High",
-        "other_remarks": f"Successfully parsed mock data from document: {file.filename}",
+        "other_remarks": f"{file.filename}",
         "employment_type": "Permanent",
         "hiring_type": "External"
     }
