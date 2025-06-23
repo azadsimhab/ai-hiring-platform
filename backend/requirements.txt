@@ -1,14 +1,8 @@
 
 fastapi
 uvicorn
-
-# Database libraries
 sqlalchemy
 psycopg2-binary
 pydantic-settings
-
-# Required for file uploads with FastAPI
 python-multipart
-
-# USE THIS LIBRARY for direct Generative API calls
-google-generativeai
+google-generativeai==0.5.4

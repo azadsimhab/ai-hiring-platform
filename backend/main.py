@@ -1,13 +1,11 @@
-# backend/main.py (FINAL - Uses Direct Generative AI API)
-
 import json
+import traceback
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy import create_engine
 
-# New import for the direct Generative AI client
 import google.generativeai as genai
 
 from . import models, schemas, crud
@@ -26,10 +24,12 @@ def get_db():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("INFO:     Application startup...")
-
-    # Configure the new Generative AI client with the API key
-    genai.configure(api_key=settings.GOOGLE_API_KEY)
-    print("INFO:     Google Generative AI client configured.")
+    try:
+        genai.configure(api_key=settings.GOOGLE_API_KEY)
+        print("INFO:     Google Generative AI client configured successfully.")
+    except Exception as e:
+        print(f"CRITICAL: FAILED to configure Generative AI client: {e}")
+        traceback.print_exc()
 
     global SessionLocal
     db_socket_dir = "/cloudsql"
@@ -49,24 +49,13 @@ async def lifespan(app: FastAPI):
 
 
 SessionLocal = None
-
-app = FastAPI(
-    title="AI Hiring Platform API",
-    description="API for managing the AI-powered hiring workflow.",
-    version="1.0.0",
-    lifespan=lifespan
-)
+app = FastAPI(title="AI Hiring Platform API", version="1.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"],
                    allow_headers=["*"])
 
 
-# --- API Endpoints ---
 @app.get("/", tags=["Health Check"])
 def read_root(): return {"message": "Hello from the AI Hiring Platform Backend!"}
-
-
-@app.get("/api/v1/status", tags=["Health Check"])
-def get_status(): return {"status": "ok", "service": "Backend API"}
 
 
 @app.post("/api/v1/hiring-requests", response_model=schemas.HiringRequest, tags=["Hiring Requests"])
@@ -82,27 +71,31 @@ async def parse_hiring_request_document(file: UploadFile = File(...)):
     try:
         file_contents = await file.read()
 
-        # Use the direct generative model
-        model = genai.GenerativeModel('gemini-pro-vision')  # Use the globally available vision model
+        model = genai.GenerativeModel('gemini-1.5-flash')
 
         prompt = """
-        You are an expert HR assistant. Based on the document, extract the key information
-        into a structured JSON object. The required fields are: job_title, department, manager, 
-        level, salary_range, benefits_perks, locations, urgency, other_remarks, 
-        employment_type, and hiring_type. If a value is not found, use a null value.
-        Respond with ONLY the JSON object.
+        You are an expert HR assistant. Your task is to analyze the provided hiring request document
+        and extract the key information into a structured JSON object.
+
+        The required JSON fields are: job_title, department, manager, level, salary_range,
+        benefits_perks, locations, urgency, other_remarks, employment_type, and hiring_type.
+
+        Analyze the document carefully. If a specific piece of information is not present, use a null value. 
+        Your response must be only the JSON object, with no extra text or markdown formatting.
         """
 
-        # This API takes the image/document bytes and prompt directly
         print("INFO:     Sending document to Generative AI API for parsing...")
         response = await model.generate_content_async([prompt, {"mime_type": file.content_type, "data": file_contents}])
 
         response_text = response.text.strip().replace("```json", "").replace("```", "")
         parsed_data = json.loads(response_text)
 
-        print("INFO:     Successfully parsed data from API.")
+        print("INFO:     Successfully parsed data from Gemini API.")
         return parsed_data
 
     except Exception as e:
-        print(f"ERROR:    An error occurred during AI parsing: {e}")
+        # This is the most important logging step.
+        print(f"CRITICAL_ERROR: An error occurred during AI parsing.")
+        # This will print the full error traceback to the Cloud Run logs.
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to parse document with AI: {str(e)}")
