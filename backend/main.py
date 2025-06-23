@@ -1,3 +1,5 @@
+# backend/main.py (Corrected with a Stable Gemini Model)
+
 import json
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, File, UploadFile, HTTPException
@@ -84,13 +86,11 @@ async def parse_hiring_request_document(file: UploadFile = File(...)):
     print(f"INFO:     Received file for parsing: {file.filename}")
 
     try:
-        # Read the content of the uploaded file
         file_contents = await file.read()
 
-        # Define the generative model (Gemini 1.5 Pro)
-        model = GenerativeModel("gemini-1.5-pro-preview-0409")
+        # THE FIX IS HERE: Using the latest stable and available model.
+        model = GenerativeModel("gemini-1.5-flash-001")
 
-        # Construct the prompt for the AI
         prompt = """
         You are an expert HR assistant. Your task is to analyze the provided hiring request document
         and extract the key information into a structured JSON object.
@@ -104,17 +104,14 @@ async def parse_hiring_request_document(file: UploadFile = File(...)):
         extra text, explanations, or markdown formatting.
         """
 
-        # Prepare the request for the multimodal model
         request_parts = [
             Part.from_data(data=file_contents, mime_type=file.content_type),
             prompt
         ]
 
-        # Call the Gemini API
         print("INFO:     Sending document to Gemini API for parsing...")
         response = await model.generate_content_async(request_parts)
 
-        # Extract, clean, and parse the JSON response from the model
         response_text = response.text.strip().replace("```json", "").replace("```", "")
         parsed_data = json.loads(response_text)
 
@@ -123,4 +120,4 @@ async def parse_hiring_request_document(file: UploadFile = File(...)):
 
     except Exception as e:
         print(f"ERROR:    An error occurred during AI parsing: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to parse document with AI: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to parse document with AI: {str(e)}")
