@@ -1,10 +1,16 @@
+# backend/config.py (Corrected to include GOOGLE_API_KEY)
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     """
     Manages application settings using Pydantic.
     """
-    # GCP Settings
+    # THE FIX IS HERE: Add the GOOGLE_API_KEY setting
+    # It will be populated from the secret we passed in cloudbuild.yaml
+    GOOGLE_API_KEY: str = "not-set"
+
+    # GCP Project Settings
     GCP_PROJECT_ID: str = "job-ai-c6f0a"
     GCP_REGION: str = "us-central1"
 
