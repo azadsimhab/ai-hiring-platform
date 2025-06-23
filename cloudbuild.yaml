@@ -1,3 +1,5 @@
+# cloudbuild.yaml (FINAL v6 - Corrects Docker Build Context and Paths)
+
 steps:
   # STEP 0: Enable APIs
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -5,10 +7,17 @@ steps:
     entrypoint: 'gcloud'
     args: ['services','enable','containerregistry.googleapis.com','artifactregistry.googleapis.com','cloudbuild.googleapis.com','run.googleapis.com','firebase.googleapis.com','iam.googleapis.com','secretmanager.googleapis.com']
 
-  # STEP 1: Build the backend Docker image
+  # ---------------------------------------------------------------------------
+  # STEP 1: THE FIX - Build the backend image using the root directory as context
+  # ---------------------------------------------------------------------------
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Build Backend Image'
-    args: ['build','--tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest','./backend']
+    args:
+      - 'build'
+      - '--tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest'
+      - '-f' # Specify the location of the Dockerfile
+      - 'backend/Dockerfile'
+      - '.'  # Use the root of the project as the build context
     wait_for: ['Enable APIs']
 
   # STEP 2: Push the backend Docker image
@@ -16,9 +25,7 @@ steps:
     id: 'Push Backend Image'
     args: ['push', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest']
 
-  # ---------------------------------------------------------------------------
-  # STEP 3: THE FIX - Deploy to Cloud Run with Database Configuration
-  # ---------------------------------------------------------------------------
+  # STEP 3: Deploy the backend image to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Deploy Backend to Cloud Run'
     entrypoint: 'gcloud'
@@ -30,13 +37,11 @@ steps:
       - '--region'
       - '${_REGION}'
       - '--allow-unauthenticated'
-      # Set environment variables for the database connection
       - '--set-env-vars=DB_USER=hiring_app_user'
       - '--set-env-vars=DB_NAME=hiring_platform_db'
       - '--set-env-vars=INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${_REGION}:hiring-platform-main-db'
-      # Securely mount the database password from Secret Manager as the DB_PASS environment variable
       - '--update-secrets=DB_PASS=db-user-password:latest'
-    wait_for: ['Push Backend Image']
+    wait_for: ['Build Backend Image'] # Depends on the build step now
 
   # STEP 4: Inject the backend URL into the frontend HTML
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
