@@ -1,26 +1,25 @@
+# cloudbuild.yaml (Final Version for React Build)
 
 steps:
-  # STEP 0: Enable APIs
+  # STEP 0: Enable all required services.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Enable APIs'
     entrypoint: 'gcloud'
     args: ['services','enable','containerregistry.googleapis.com','artifactregistry.googleapis.com','cloudbuild.googleapis.com','run.googleapis.com','firebase.googleapis.com','iam.googleapis.com','secretmanager.googleapis.com']
 
-  # STEP 1: Build the backend Docker image
+  # STEP 1: Build the backend image.
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Build Backend Image'
     args: ['build','--tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest','-f','backend/Dockerfile','.']
     wait_for: ['Enable APIs']
 
-  # STEP 2: Push the backend Docker image
+  # STEP 2: Push the backend Docker image.
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Push Backend Image'
     args: ['push', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest']
     wait_for: ['Build Backend Image']
 
-  # ---------------------------------------------------------------------------
-  # STEP 3: THE FINAL FIX - Deploy to Cloud Run with ALL Database Configurations
-  # ---------------------------------------------------------------------------
+  # STEP 3: Deploy the backend to Cloud Run.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Deploy Backend to Cloud Run'
     entrypoint: 'gcloud'
@@ -32,41 +31,32 @@ steps:
       - '--region'
       - '${_REGION}'
       - '--allow-unauthenticated'
-      # THE FIX IS THIS LINE: Tell Cloud Run to connect to our SQL instance.
       - '--add-cloudsql-instances=${PROJECT_ID}:${_REGION}:hiring-platform-main-db'
-      # Set environment variables for the database connection
-      - '--set-env-vars=DB_USER=hiring_app_user'
-      - '--set-env-vars=DB_NAME=hiring_platform_db'
-      - '--set-env-vars=INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${_REGION}:hiring-platform-main-db'
-      # Securely mount the database password from Secret Manager
+      - '--set-env-vars=DB_USER=hiring_app_user,DB_NAME=hiring_platform_db,INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${_REGION}:hiring-platform-main-db'
       - '--update-secrets=DB_PASS=db-user-password:latest'
     wait_for: ['Push Backend Image']
 
-  # STEP 4: Inject the backend URL into the frontend HTML
+  # ---------------------------------------------------------------------------
+  # STEP 4: THE FIX - Build the React App and Deploy to Firebase
+  # ---------------------------------------------------------------------------
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    id: 'Inject Backend URL'
+    id: 'Build and Deploy Frontend'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        BACKEND_URL=$$(gcloud run services describe api-backend --platform managed --region ${_REGION} --format 'value(status.url)')
-        sed -i "s|YOUR_BACKEND_URL_WILL_GO_HERE|$${BACKEND_URL}|g" frontend/index.html
-    wait_for: ['Deploy Backend to Cloud Run']
-
-  # STEP 5: Deploy Frontend
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    id: 'Deploy Frontend to Firebase'
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        apt-get update > /dev/null && apt-get install -y curl > /dev/null
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash - > /dev/null
-        apt-get install -y nodejs > /dev/null
-        npm install -g firebase-tools
+        # Install Node.js and dependencies
+        apt-get update && apt-get install -y nodejs npm
+        
+        # Build the React application
         cd frontend
+        npm install
+        npm run build
+        
+        # Deploy to Firebase Hosting
+        # The firebase.json file should point to the 'build' directory
         firebase deploy --project=$PROJECT_ID --only=hosting --non-interactive
-    wait_for: ['Inject Backend URL']
+    wait_for: ['Deploy Backend to Cloud Run']
 
 # Define substitutions
 substitutions:
