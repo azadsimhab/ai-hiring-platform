@@ -1,3 +1,5 @@
+# backend/crud.py (Corrected to handle both Pydantic models and dictionaries)
+
 from sqlalchemy.orm import Session
 from . import models, schemas
 
@@ -6,8 +8,7 @@ def create_hiring_request(db: Session, request: schemas.HiringRequestCreate) -> 
     """
     Creates a new hiring request record in the database.
 
-    This function takes the validated data from the API and creates a new
-    database object, commits it, and returns the new object.
+    This function now robustly handles either a Pydantic model or a dictionary.
 
     Args:
         db (Session): The database session provided by the API dependency.
@@ -16,9 +17,15 @@ def create_hiring_request(db: Session, request: schemas.HiringRequestCreate) -> 
     Returns:
         models.HiringRequest: The SQLAlchemy model instance of the newly created request.
     """
-    # Create a new SQLAlchemy model instance from the Pydantic schema data
-    # The **request.model_dump() unpacks the Pydantic model into a dictionary
-    db_request = models.HiringRequest(**request.model_dump())
+    # THE FIX IS HERE: We check if the input has 'model_dump' (is a Pydantic model).
+    # If not, we assume it's already a dictionary.
+    if hasattr(request, 'model_dump'):
+        request_data = request.model_dump()
+    else:
+        request_data = request
+
+    # Create a new SQLAlchemy model instance from the data
+    db_request = models.HiringRequest(**request_data)
 
     # Add the new instance to the session, staging it for commit
     db.add(db_request)
