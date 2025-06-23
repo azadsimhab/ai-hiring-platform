@@ -1,3 +1,5 @@
+# backend/main.py (Updated with File Upload Endpoint)
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -105,4 +107,20 @@ async def parse_hiring_request_document(file: UploadFile = File(...)):
     #    it to extract fields into a JSON matching our schema.
     # =================================================================
 
-    # For now, we
+    # For now, we will return MOCK DATA to test the upload mechanism.
+    mock_extracted_data = {
+        "job_title": "Parsed: Senior AI Engineer",
+        "department": "Parsed: Research and Development",
+        "manager": "Parsed: Dr. Eva Rostova",
+        "level": "Parsed: L5",
+        "salary_range": "Parsed: 150,000 - 200,000 USD",
+        "benefits_perks": "Parsed: Full health coverage and unlimited PTO.",
+        "locations": "Parsed: Remote, USA",
+        "urgency": "High",
+        "other_remarks": f"Successfully parsed from document: {file.filename}",
+        "employment_type": "Permanent",
+        "hiring_type": "External"
+    }
+
+    print(f"INFO:     Returning mock parsed data.")
+    return mock_extracted_data
