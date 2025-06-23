@@ -1,4 +1,4 @@
-# backend/main.py (Updated with File Upload Endpoint)
+# backend/main.py (Final version with clean mock data)
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, File, UploadFile
@@ -6,13 +6,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy import create_engine
 
-# Import all the modules we've created
 from . import models, schemas, crud
 from .config import settings
 from .database import Base
 
 
-# This function will handle our database session dependency
 def get_db():
     db = SessionLocal()
     try:
@@ -21,31 +19,24 @@ def get_db():
         db.close()
 
 
-# This lifespan function will run code on application startup and shutdown
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("INFO:     Application startup...")
-
     global SessionLocal
-
     db_socket_dir = "/cloudsql"
     db_uri = (
         f"postgresql+psycopg2://{settings.DB_USER}:{settings.DB_PASS}@"
         f"/{settings.DB_NAME}?host={db_socket_dir}/{settings.INSTANCE_CONNECTION_NAME}"
     )
-
     engine = create_engine(db_uri)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
     print("INFO:     Creating database tables...")
     Base.metadata.create_all(bind=engine)
     print("INFO:     Database tables created successfully.")
-
     yield
     print("INFO:     Application shutdown.")
 
 
-# Define SessionLocal globally but initialize it in the lifespan event
 SessionLocal = None
 
 app = FastAPI(
@@ -55,7 +46,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Allow CORS for frontend access
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -81,46 +71,31 @@ def get_status():
 def create_hiring_request_endpoint(
         request: schemas.HiringRequestCreate, db: Session = Depends(get_db)
 ):
-    """
-    Creates a new hiring request from JSON data.
-    """
     return crud.create_hiring_request(db=db, request=request)
 
 
-# ---------------------------------------------------------------------------
-# NEW ENDPOINT FOR FILE UPLOAD AND PARSING
-# ---------------------------------------------------------------------------
 @app.post("/api/v1/hiring-requests/parse-document", response_model=schemas.HiringRequestBase, tags=["Hiring Requests"])
 async def parse_hiring_request_document(file: UploadFile = File(...)):
-    """
-    Accepts a document upload, sends it to a generative AI model for parsing,
-    and returns the extracted data as a JSON object to pre-fill the form.
-    """
     print(f"INFO:     Received file: {file.filename}, content-type: {file.content_type}")
 
     # =================================================================
     # TODO: AI Integration Step (Future Implementation)
-    #
-    # 1. Read the file content: `contents = await file.read()`
-    # 2. Authenticate with Vertex AI.
-    # 3. Call the Gemini API with the file contents and a prompt asking
-    #    it to extract fields into a JSON matching our schema.
     # =================================================================
 
-    # For now, we will return MOCK DATA to test the upload mechanism.
+    # This mock data no longer has the "Parsed:" prefix.
     mock_extracted_data = {
-        "job_title": "Parsed: Senior AI Engineer",
-        "department": "Parsed: Research and Development",
-        "manager": "Parsed: Dr. Eva Rostova",
-        "level": "Parsed: L5",
-        "salary_range": "Parsed: 150,000 - 200,000 USD",
-        "benefits_perks": "Parsed: Full health coverage and unlimited PTO.",
-        "locations": "Parsed: Remote, USA",
+        "job_title": "Senior AI Engineer (from Document)",
+        "department": "Research and Development",
+        "manager": "Dr. Eva Rostova",
+        "level": "L5",
+        "salary_range": "150,000 - 200,000 USD",
+        "benefits_perks": "Full health coverage and unlimited PTO.",
+        "locations": "Remote, USA",
         "urgency": "High",
-        "other_remarks": f"Successfully parsed from document: {file.filename}",
+        "other_remarks": f"Successfully parsed mock data from document: {file.filename}",
         "employment_type": "Permanent",
         "hiring_type": "External"
     }
 
-    print(f"INFO:     Returning mock parsed data.")
+    print(f"INFO:     Returning clean mock parsed data.")
     return mock_extracted_data
