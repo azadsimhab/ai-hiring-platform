@@ -1,42 +1,23 @@
-# cloudbuild.yaml (FINAL v4 - Corrects Project ID Variable)
-
 steps:
-  # ---------------------------------------------------------------------------
-  # STEP 0: Enable all required services for the pipeline to run.
-  # ---------------------------------------------------------------------------
+  # STEP 0: Enable APIs
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Enable APIs'
     entrypoint: 'gcloud'
-    args:
-      - 'services'
-      - 'enable'
-      - 'containerregistry.googleapis.com'
-      - 'artifactregistry.googleapis.com'
-      - 'cloudbuild.googleapis.com'
-      - 'run.googleapis.com'
-      - 'firebase.googleapis.com'
-      - 'iam.googleapis.com'
+    args: ['services','enable','containerregistry.googleapis.com','artifactregistry.googleapis.com','cloudbuild.googleapis.com','run.googleapis.com','firebase.googleapis.com','iam.googleapis.com','secretmanager.googleapis.com']
 
-  # ---------------------------------------------------------------------------
   # STEP 1: Build the backend Docker image
-  # ---------------------------------------------------------------------------
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Build Backend Image'
-    args:
-      - 'build'
-      - '--tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest'
-      - './backend'
+    args: ['build','--tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest','./backend']
     wait_for: ['Enable APIs']
 
-  # ---------------------------------------------------------------------------
   # STEP 2: Push the backend Docker image
-  # ---------------------------------------------------------------------------
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Push Backend Image'
     args: ['push', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest']
 
   # ---------------------------------------------------------------------------
-  # STEP 3: Deploy the backend image to Cloud Run
+  # STEP 3: THE FIX - Deploy to Cloud Run with Database Configuration
   # ---------------------------------------------------------------------------
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Deploy Backend to Cloud Run'
@@ -49,11 +30,15 @@ steps:
       - '--region'
       - '${_REGION}'
       - '--allow-unauthenticated'
+      # Set environment variables for the database connection
+      - '--set-env-vars=DB_USER=hiring_app_user'
+      - '--set-env-vars=DB_NAME=hiring_platform_db'
+      - '--set-env-vars=INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${_REGION}:hiring-platform-main-db'
+      # Securely mount the database password from Secret Manager as the DB_PASS environment variable
+      - '--update-secrets=DB_PASS=db-user-password:latest'
     wait_for: ['Push Backend Image']
 
-  # ---------------------------------------------------------------------------
   # STEP 4: Inject the backend URL into the frontend HTML
-  # ---------------------------------------------------------------------------
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Inject Backend URL'
     entrypoint: 'bash'
@@ -64,29 +49,22 @@ steps:
         sed -i "s|YOUR_BACKEND_URL_WILL_GO_HERE|$${BACKEND_URL}|g" frontend/index.html
     wait_for: ['Deploy Backend to Cloud Run']
 
-  # ---------------------------------------------------------------------------
-  # STEP 5: THE FINAL FIX - Use the correct $PROJECT_ID environment variable
-  # ---------------------------------------------------------------------------
+  # STEP 5: Deploy Frontend
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Deploy Frontend to Firebase'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        # Install compatible Node.js version and quiet the output
         apt-get update > /dev/null && apt-get install -y curl > /dev/null
         curl -fsSL https://deb.nodesource.com/setup_20.x | bash - > /dev/null
         apt-get install -y nodejs > /dev/null
-
-        # Install firebase-tools
         npm install -g firebase-tools
-
-        # Deploy, using the correct $PROJECT_ID environment variable
         cd frontend
         firebase deploy --project=$PROJECT_ID --only=hosting --non-interactive --debug
     wait_for: ['Inject Backend URL']
 
-# Define substitutions for our variables
+# Define substitutions
 substitutions:
   _REGION: 'us-central1'
   _AR_REPO_NAME: 'ai-hiring-platform-backend'
