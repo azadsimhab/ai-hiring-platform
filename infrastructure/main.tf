@@ -1,4 +1,4 @@
-# infrastructure/main.tf
+# infrastructure/main.tf (FINAL - Adds all required secret permissions)
 
 terraform {
   required_providers {
@@ -76,7 +76,6 @@ resource "random_password" "db_user_password" {
 resource "google_secret_manager_secret" "db_password_secret" {
   secret_id = "db-user-password"
   project   = var.gcp_project_id
-
   replication {
     auto {}
   }
@@ -109,7 +108,6 @@ resource "google_cloud_run_v2_service" "backend_service" {
   name     = "api-backend"
   location = var.gcp_region
   project  = var.gcp_project_id
-
   template {
     containers {
       image = "us-docker.pkg.dev/cloudrun/container/hello"
@@ -135,9 +133,7 @@ resource "google_secret_manager_secret_iam_member" "allow_run_access_db_secret" 
   member    = "serviceAccount:83797326158-compute@developer.gserviceaccount.com"
 }
 
-# ---------------------------------------------------------------------------
 # THE FIX: Add permission for the GOOGLE_API_KEY secret
-# ---------------------------------------------------------------------------
 data "google_secret_manager_secret" "google_api_key_secret_data" {
   project   = var.gcp_project_id
   secret_id = "GOOGLE_API_KEY"
@@ -149,7 +145,6 @@ resource "google_secret_manager_secret_iam_member" "allow_run_access_google_api_
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:83797326158-compute@developer.gserviceaccount.com"
 }
-
 
 # Permission for Cloud SQL Connection
 resource "google_project_iam_member" "allow_run_connect_sql" {
