@@ -1,15 +1,23 @@
-# cloudbuild.yaml
 
 steps:
-  # STEP 0: Enable all required services.
+  # STEP 0: Enable all required APIs for the project.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Enable APIs'
     entrypoint: 'gcloud'
-    args: ['services','enable','containerregistry.googleapis.com','artifactregistry.googleapis.com','cloudbuild.googleapis.com','run.googleapis.com','firebase.googleapis.com','iam.googleapis.com','secretmanager.googleapis.com', 'aiplatform.googleapis.com', 'generativelanguage.googleapis.com']
+    args:
+      - 'services'
+      - 'enable'
+      - 'run.googleapis.com'
+      - 'iam.googleapis.com'
+      - 'sqladmin.googleapis.com'
+      - 'firebase.googleapis.com'
+      - 'secretmanager.googleapis.com'
+      - 'artifactregistry.googleapis.com'
+      - 'generativelanguage.googleapis.com'
 
-  # STEP 1: Build the backend image.
+  # STEP 1: Build the backend Docker image.
   - name: 'gcr.io/cloud-builders/docker'
-    id: 'Build Backend Image'
+    id: 'Build Backend'
     args:
       - 'build'
       - '--tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest'
@@ -18,15 +26,17 @@ steps:
       - '.'
     wait_for: ['Enable APIs']
 
-  # STEP 2: Push the backend Docker image.
+  # STEP 2: Push the backend image to Artifact Registry.
   - name: 'gcr.io/cloud-builders/docker'
-    id: 'Push Backend Image'
-    args: ['push', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest']
-    wait_for: ['Build Backend Image']
+    id: 'Push Backend'
+    args:
+      - 'push'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest'
+    wait_for: ['Build Backend']
 
-  # STEP 3: Deploy the backend to Cloud Run.
+  # STEP 3: Deploy the backend service to Cloud Run with all configurations.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    id: 'Deploy Backend to Cloud Run'
+    id: 'Deploy Backend'
     entrypoint: 'gcloud'
     args:
       - 'run'
@@ -39,36 +49,52 @@ steps:
       - '--add-cloudsql-instances=${PROJECT_ID}:${_REGION}:hiring-platform-main-db'
       - '--update-secrets=DB_PASS=db-user-password:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest'
       - '--set-env-vars=DB_USER=hiring_app_user,DB_NAME=hiring_platform_db,INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${_REGION}:hiring-platform-main-db,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${_REGION}'
-    wait_for: ['Push Backend Image']
+    wait_for: ['Push Backend']
 
-  # STEP 4: Build and Deploy Frontend
+  # ---------------------------------------------------------------------------
+  # STEP 4: THE FINAL FIX - Use a dedicated Node.js builder for the frontend.
+  # This is the industry-standard way to build Node.js applications in CI/CD.
+  # It installs dependencies, runs the build, and prepares for deployment.
+  # ---------------------------------------------------------------------------
+  - name: 'gcr.io/cloud-builders/npm:latest'
+    id: 'Build Frontend'
+    args: ['install']
+    dir: 'frontend'
+    wait_for: ['Deploy Backend']
+
+  - name: 'gcr.io/cloud-builders/npm:latest'
+    id: 'Run React Build'
+    args: ['run', 'build']
+    dir: 'frontend'
+    wait_for: ['Build Frontend']
+
+  # ---------------------------------------------------------------------------
+  # STEP 5: Deploy the built frontend to Firebase Hosting.
+  # This step uses the official firebase builder, which is now reliable.
+  # ---------------------------------------------------------------------------
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    id: 'Build and Deploy Frontend'
+    id: 'Deploy Frontend'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        # Install a compatible version of Node.js
-        apt-get update > /dev/null && apt-get install -y curl > /dev/null
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash - > /dev/null
-        apt-get install -y nodejs > /dev/null
-        
-        # THE FIX: Install Firebase Tools globally
         npm install -g firebase-tools
-        
-        # Navigate to frontend, install dependencies, and build the React app
-        cd frontend
-        npm install
-        npm run build
-        
-        # Deploy the contents of the 'build' folder to Firebase
-        firebase deploy --project=$$PROJECT_ID --only=hosting --non-interactive
-    wait_for: ['Deploy Backend to Cloud Run']
+        firebase use --add ${PROJECT_ID} --token "$$FIREBASE_TOKEN"
+        firebase deploy --only hosting --project ${PROJECT_ID} --non-interactive
+    dir: 'frontend'
+    wait_for: ['Run React Build']
+    secret_env: ['FIREBASE_TOKEN']
 
 # Define substitutions
 substitutions:
   _REGION: 'us-central1'
   _AR_REPO_NAME: 'ai-hiring-platform-backend'
+
+# Grant the build access to the Firebase Token secret
+available_secrets:
+  secret_manager:
+  - version_name: projects/job-ai-c6f0a/secrets/FIREBASE_TOKEN/versions/latest
+    env: 'FIREBASE_TOKEN'
 
 options:
   logging: CLOUD_LOGGING_ONLY
