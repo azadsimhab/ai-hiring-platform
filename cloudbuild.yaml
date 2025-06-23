@@ -1,6 +1,7 @@
+# cloudbuild.yaml
 
 steps:
-  # STEP 0: Enable all required services.
+  # STEP 0: Enable APIs
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Enable APIs'
     entrypoint: 'gcloud'
@@ -17,7 +18,7 @@ steps:
       - 'aiplatform.googleapis.com'
       - 'generativelanguage.googleapis.com'
 
-  # STEP 1: Build the backend image.
+  # STEP 1: Build the backend image
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Build Backend Image'
     args:
@@ -28,7 +29,7 @@ steps:
       - '.'
     wait_for: ['Enable APIs']
 
-  # STEP 2: Push the backend Docker image.
+  # STEP 2: Push the backend Docker image
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Push Backend Image'
     args:
@@ -36,7 +37,7 @@ steps:
       - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest'
     wait_for: ['Build Backend Image']
 
-  # STEP 3: Deploy the backend to Cloud Run.
+  # STEP 3: Deploy the backend to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Deploy Backend to Cloud Run'
     entrypoint: 'gcloud'
@@ -53,21 +54,24 @@ steps:
       - '--set-env-vars=DB_USER=hiring_app_user,DB_NAME=hiring_platform_db,INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${_REGION}:hiring-platform-main-db,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${_REGION}'
     wait_for: ['Push Backend Image']
 
-  # STEP 4: Build and Deploy Frontend
+  # ---------------------------------------------------------------------------
+  # STEP 4: THE FIX - Build and Deploy Frontend with correctly chained commands
+  # ---------------------------------------------------------------------------
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Build and Deploy Frontend'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        apt-get update > /dev/null && apt-get install -y curl > /dev/null
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash - > /dev/null
-        apt-get install -y nodejs > /dev/null
-        npm install -g firebase-tools
-        cd frontend
-        npm install
-        npm run build
-        firebase deploy --project=$PROJECT_ID --only=hosting --non-interactive
+        apt-get update -y && \
+        apt-get install -y curl && \
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+        apt-get install -y nodejs && \
+        npm install -g firebase-tools && \
+        cd frontend && \
+        npm install && \
+        npm run build && \
+        firebase deploy --project=$$PROJECT_ID --only=hosting --non-interactive
     wait_for: ['Deploy Backend to Cloud Run']
 
 # Define substitutions
