@@ -1,12 +1,11 @@
-# backend/Dockerfile (FINAL Corrected Version)
+# backend/Dockerfile
 
 FROM python:3.11-slim
 
 # Set the working directory inside the container
 WORKDIR /app
 
-# Copy the requirements file from the backend directory
-# This path is now correct because our build context is the project root
+# The build context is now the project root, so this path is correct
 COPY backend/requirements.txt .
 
 # Install Python dependencies

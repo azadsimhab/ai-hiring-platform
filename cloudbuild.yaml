@@ -1,31 +1,30 @@
-# cloudbuild.yaml (FINAL v6 - Corrects Docker Build Context and Paths)
+# cloudbuild.yaml
 
 steps:
-  # STEP 0: Enable APIs
+  # STEP 0: Enable all required services.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Enable APIs'
     entrypoint: 'gcloud'
     args: ['services','enable','containerregistry.googleapis.com','artifactregistry.googleapis.com','cloudbuild.googleapis.com','run.googleapis.com','firebase.googleapis.com','iam.googleapis.com','secretmanager.googleapis.com']
 
-  # ---------------------------------------------------------------------------
-  # STEP 1: THE FIX - Build the backend image using the root directory as context
-  # ---------------------------------------------------------------------------
+  # STEP 1: Build the backend image using the root directory as the build context.
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Build Backend Image'
     args:
       - 'build'
       - '--tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest'
-      - '-f' # Specify the location of the Dockerfile
+      - '-f' # Specify the Dockerfile location
       - 'backend/Dockerfile'
-      - '.'  # Use the root of the project as the build context
+      - '.'  # Use the project's root directory as the build context
     wait_for: ['Enable APIs']
 
-  # STEP 2: Push the backend Docker image
+  # STEP 2: Push the backend Docker image.
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Push Backend Image'
     args: ['push', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest']
+    wait_for: ['Build Backend Image']
 
-  # STEP 3: Deploy the backend image to Cloud Run
+  # STEP 3: Deploy the backend image to Cloud Run with database configuration.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Deploy Backend to Cloud Run'
     entrypoint: 'gcloud'
@@ -41,9 +40,9 @@ steps:
       - '--set-env-vars=DB_NAME=hiring_platform_db'
       - '--set-env-vars=INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${_REGION}:hiring-platform-main-db'
       - '--update-secrets=DB_PASS=db-user-password:latest'
-    wait_for: ['Build Backend Image'] # Depends on the build step now
+    wait_for: ['Push Backend Image']
 
-  # STEP 4: Inject the backend URL into the frontend HTML
+  # STEP 4: Inject the backend URL into the frontend HTML.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Inject Backend URL'
     entrypoint: 'bash'
@@ -54,7 +53,7 @@ steps:
         sed -i "s|YOUR_BACKEND_URL_WILL_GO_HERE|$${BACKEND_URL}|g" frontend/index.html
     wait_for: ['Deploy Backend to Cloud Run']
 
-  # STEP 5: Deploy Frontend
+  # STEP 5: Deploy Frontend by self-installing Firebase tools.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Deploy Frontend to Firebase'
     entrypoint: 'bash'
@@ -66,7 +65,7 @@ steps:
         apt-get install -y nodejs > /dev/null
         npm install -g firebase-tools
         cd frontend
-        firebase deploy --project=$PROJECT_ID --only=hosting --non-interactive --debug
+        firebase deploy --project=$PROJECT_ID --only=hosting --non-interactive
     wait_for: ['Inject Backend URL']
 
 # Define substitutions
