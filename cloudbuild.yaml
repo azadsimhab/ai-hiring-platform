@@ -34,24 +34,31 @@ steps:
       - '--update-secrets=DB_PASS=db-user-password:latest'
     wait_for: ['Push Backend Image']
 
-# STEP 4: Build the React App and Deploy to Firebase
+  # ---------------------------------------------------------------------------
+  # STEP 4: THE FIX - Install a compatible Node.js version (v20), then build and deploy
+  # ---------------------------------------------------------------------------
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Build and Deploy Frontend'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        # Go into the frontend directory
-        cd frontend
+        # Install curl, then use NodeSource official script to set up Node.js v20
+        apt-get update > /dev/null && apt-get install -y curl > /dev/null
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+        apt-get install -y nodejs
         
-        # Install dependencies and create the production 'build' folder
+        # Now install and use firebase-tools
+        npm install -g firebase-tools
+        
+        # Build the React application
+        cd frontend
         npm install
         npm run build
         
         # Deploy to Firebase Hosting
-        # firebase.json correctly points to the 'build' folder
         firebase deploy --project=$PROJECT_ID --only=hosting --non-interactive
-    wait_for: ['Deploy Backend to Cloud Run'
+    wait_for: ['Deploy Backend to Cloud Run']
 
 # Define substitutions
 substitutions:
