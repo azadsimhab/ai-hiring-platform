@@ -1,7 +1,7 @@
-# cloudbuild.yaml (FINAL - Self-Contained Build & Deploy)
+# cloudbuild.yaml (FINAL - Professional Build Structure)
 
 steps:
-  # STEP 0: Enable all required APIs.
+  # STEP 0: Enable all required APIs for the project.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Enable APIs'
     entrypoint: 'gcloud'
@@ -27,7 +27,7 @@ steps:
       - '.'
     wait_for: ['Enable APIs']
 
-  # STEP 2: Push the backend image to Artifact Registry.
+  # STEP 2: Push the backend image.
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Push Backend'
     args: ['push', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest']
@@ -50,38 +50,29 @@ steps:
       - '--set-env-vars=DB_USER=hiring_app_user,DB_NAME=hiring_platform_db,INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${_REGION}:hiring-platform-main-db,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${_REGION}'
     wait_for: ['Push Backend']
 
-  # ---------------------------------------------------------------------------
-  # STEP 4: THE FINAL FIX - A single, robust step for all frontend operations.
-  # This installs all tools inside one environment to guarantee they are found.
-  # ---------------------------------------------------------------------------
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    id: 'Build and Deploy Frontend'
-    entrypoint: 'bash'
+  # STEP 4: Install frontend node modules using the official npm builder.
+  - name: 'gcr.io/cloud-builders/npm'
+    id: 'Frontend Install'
+    args: ['install']
+    dir: 'frontend'
+
+  # STEP 5: Create the production build of the React app.
+  - name: 'gcr.io/cloud-builders/npm'
+    id: 'Frontend Build'
+    args: ['run', 'build']
+    dir: 'frontend'
+    wait_for: ['Frontend Install']
+
+  # STEP 6: Deploy the 'build' directory using the official Firebase builder.
+  - name: 'gcr.io/firebase/firebase'
+    id: 'Deploy Frontend'
     args:
-      - '-c'
-      - |
-        # Install specific Node.js version and suppress verbose output
-        echo "INFO: Installing Node.js v20..."
-        apt-get update -y > /dev/null && apt-get install -y curl > /dev/null
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash - > /dev/null
-        apt-get install -y nodejs > /dev/null
-        echo "INFO: Node.js installation complete."
-        
-        # Install Firebase Tools globally inside this step's environment
-        echo "INFO: Installing Firebase Tools..."
-        npm install -g firebase-tools
-        echo "INFO: Firebase Tools installation complete."
-
-        # Go into frontend directory, install dependencies, build the React app, and deploy
-        echo "INFO: Building React application..."
-        cd frontend
-        npm install
-        npm run build
-        echo "INFO: React build complete. Deploying to Firebase..."
-        firebase deploy --project=$PROJECT_ID --only=hosting --non-interactive
-        echo "INFO: Firebase deployment complete."
-    wait_for: ['Deploy Backend']
-
+      - 'deploy'
+      - '--project=${PROJECT_ID}'
+      - '--only=hosting'
+      - '--non-interactive'
+    dir: 'frontend'
+    wait_for: ['Frontend Build']
 
 # Use the powerful service account you created for all steps.
 service_account: 'projects/job-ai-c6f0a/serviceAccounts/hiring-ai@job-ai-c6f0a.iam.gserviceaccount.com'

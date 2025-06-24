@@ -59,8 +59,8 @@ async def parse_hiring_request_document(file: UploadFile = File(...)):
     print(f"INFO:     Received file for parsing: {file.filename}")
     try:
         file_contents = await file.read()
-        model = genai.GenerativeModel("gemini-1.5-flash")  # Using stable multimodal model
-        prompt = "You are an HR assistant. Analyze the document and extract hiring request details into a JSON object with these exact keys: job_title, department, manager, level, salary_range, benefits_perks, locations, urgency, other_remarks, employment_type, hiring_type. Use null for missing fields. Respond with ONLY the raw JSON object."
+        model = genai.GenerativeModel("gemini-1.5-flash")  # Use stable multimodal model
+        prompt = "You are an expert HR assistant. Analyze the document and extract hiring request details into a JSON object with these exact keys: job_title, department, manager, level, salary_range, benefits_perks, locations, urgency, other_remarks, employment_type, hiring_type. Use null for missing fields. Respond with ONLY the raw JSON object."
 
         response = await model.generate_content_async([prompt, {"mime_type": file.content_type, "data": file_contents}])
 
