@@ -1,4 +1,4 @@
-# cloudbuild.yaml (FINAL - Professional Build Structure)
+# cloudbuild.yaml (FINAL - Using the correct official Firebase builder)
 
 steps:
   # STEP 0: Enable all required APIs for the project.
@@ -50,10 +50,7 @@ steps:
       - '--set-env-vars=DB_USER=hiring_app_user,DB_NAME=hiring_platform_db,INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${_REGION}:hiring-platform-main-db,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${_REGION}'
     wait_for: ['Push Backend']
 
-  # --- THE FIX ---
-  # Use dedicated, official builders for each frontend task.
-
-  # STEP 4: Install frontend node modules using the official npm builder.
+  # STEP 4: Install frontend dependencies.
   - name: 'gcr.io/cloud-builders/npm'
     id: 'Frontend Install'
     args: ['install']
@@ -67,8 +64,8 @@ steps:
     dir: 'frontend'
     wait_for: ['Frontend Install']
 
-  # STEP 6: Deploy the 'build' directory using the official Firebase builder.
-  - name: 'gcr.io/firebase/firebase'
+  # STEP 6: Deploy using the correct community Firebase builder.
+  - name: 'us-docker.pkg.dev/firebase-community/firebase-cli/firebase'
     id: 'Deploy Frontend'
     args:
       - 'deploy'
