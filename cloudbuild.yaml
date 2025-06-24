@@ -1,9 +1,22 @@
-# cloudbuild.yaml (Professional Grade - Using Correct Builders)
+# cloudbuild.yaml (FINAL - Professional Build Structure)
 
 steps:
-  # --- BACKEND STEPS (Working Correctly) ---
+  # STEP 0: Enable all required APIs for the project.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'Enable APIs'
+    entrypoint: 'gcloud'
+    args:
+      - 'services'
+      - 'enable'
+      - 'run.googleapis.com'
+      - 'iam.googleapis.com'
+      - 'sqladmin.googleapis.com'
+      - 'firebase.googleapis.com'
+      - 'secretmanager.googleapis.com'
+      - 'artifactregistry.googleapis.com'
+      - 'generativelanguage.googleapis.com'
 
-  # 1. Build the backend Docker image
+  # STEP 1: Build the backend Docker image.
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Build Backend'
     args:
@@ -12,14 +25,15 @@ steps:
       - '-f'
       - 'backend/Dockerfile'
       - '.'
+    wait_for: ['Enable APIs']
 
-  # 2. Push the backend image
+  # STEP 2: Push the backend image.
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Push Backend'
     args: ['push', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest']
     wait_for: ['Build Backend']
 
-  # 3. Deploy the backend service to Cloud Run
+  # STEP 3: Deploy the backend service to Cloud Run.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Deploy Backend'
     entrypoint: 'gcloud'
@@ -36,23 +50,23 @@ steps:
       - '--set-env-vars=DB_USER=hiring_app_user,DB_NAME=hiring_platform_db,INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${_REGION}:hiring-platform-main-db,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${_REGION}'
     wait_for: ['Push Backend']
 
-  # --- FRONTEND STEPS (Corrected) ---
+  # --- THE FIX ---
+  # Use the dedicated 'npm' builder for node tasks and the 'firebase' builder for deployment.
 
-  # 4. Install frontend dependencies using the official npm builder
+  # STEP 4: Install frontend node modules.
   - name: 'gcr.io/cloud-builders/npm'
     id: 'Frontend Install'
     args: ['install']
     dir: 'frontend'
-    wait_for: ['Deploy Backend']
 
-  # 5. Create the production build of the React app
+  # STEP 5: Create the production build of the React app.
   - name: 'gcr.io/cloud-builders/npm'
     id: 'Frontend Build'
     args: ['run', 'build']
     dir: 'frontend'
     wait_for: ['Frontend Install']
 
-  # 6. Deploy the 'build' directory to Firebase using the official Firebase builder
+  # STEP 6: Deploy the 'build' directory using the official Firebase builder.
   - name: 'gcr.io/firebase/firebase'
     id: 'Deploy Frontend'
     args:

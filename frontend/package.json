@@ -17,9 +17,6 @@
     "react-scripts": "5.0.1",
     "web-vitals": "^2.1.4"
   },
-  "devDependencies": {
-    "firebase-tools": "^13.11.1"
-  },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
