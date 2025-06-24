@@ -50,11 +50,15 @@ steps:
       - '--set-env-vars=DB_USER=hiring_app_user,DB_NAME=hiring_platform_db,INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${_REGION}:hiring-platform-main-db,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${_REGION}'
     wait_for: ['Push Backend']
 
+  # --- THE FIX ---
+  # Use dedicated, official builders for each frontend task.
+
   # STEP 4: Install frontend node modules using the official npm builder.
   - name: 'gcr.io/cloud-builders/npm'
     id: 'Frontend Install'
     args: ['install']
     dir: 'frontend'
+    wait_for: ['Deploy Backend']
 
   # STEP 5: Create the production build of the React app.
   - name: 'gcr.io/cloud-builders/npm'
