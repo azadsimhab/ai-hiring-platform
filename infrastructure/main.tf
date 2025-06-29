@@ -1,4 +1,4 @@
-# infrastructure/main.tf (FINAL - Pointing to 'hiringagent' project)
+# infrastructure/main.tf (FINAL - With Frontend Service)
 
 terraform {
   required_providers {
@@ -29,31 +29,12 @@ provider "google" {
   region  = var.gcp_region
 }
 
-# --- Enabling APIs ---
-resource "google_project_service" "apis" {
-  for_each = toset([
-    "run.googleapis.com",
-    "artifactregistry.googleapis.com",
-    "cloudbuild.googleapis.com",
-    "firebasehosting.googleapis.com",
-    "sqladmin.googleapis.com",
-    "secretmanager.googleapis.com",
-    "aiplatform.googleapis.com",
-    "generativelanguage.googleapis.com"
-  ])
-  project            = var.gcp_project_id
-  service            = each.key
-  disable_on_destroy = false
-}
-
 # --- Database Resources ---
 resource "google_sql_database_instance" "main_instance" {
   name             = "hiring-platform-main-db"
   database_version = "POSTGRES_14"
   region           = var.gcp_region
   project          = var.gcp_project_id
-  depends_on       = [google_project_service.apis]
-
   settings {
     tier = "db-f1-micro"
     ip_configuration {
@@ -61,32 +42,26 @@ resource "google_sql_database_instance" "main_instance" {
     }
   }
 }
-
 resource "google_sql_database" "hiring_db" {
   name     = "hiring_platform_db"
   instance = google_sql_database_instance.main_instance.name
   project  = var.gcp_project_id
 }
-
 resource "random_password" "db_user_password" {
   length  = 24
   special = true
 }
-
 resource "google_secret_manager_secret" "db_password_secret" {
   secret_id = "db-user-password"
   project   = var.gcp_project_id
   replication {
     auto {}
   }
-  depends_on = [google_project_service.apis]
 }
-
 resource "google_secret_manager_secret_version" "db_password_secret_version" {
   secret      = google_secret_manager_secret.db_password_secret.id
   secret_data = random_password.db_user_password.result
 }
-
 resource "google_sql_user" "db_user" {
   name     = "hiring_app_user"
   instance = google_sql_database_instance.main_instance.name
@@ -94,73 +69,53 @@ resource "google_sql_user" "db_user" {
   project  = var.gcp_project_id
 }
 
-
-# --- Application Resources ---
+# --- Application Registries ---
 resource "google_artifact_registry_repository" "backend_repo" {
   location      = var.gcp_region
   repository_id = "ai-hiring-platform-backend"
   description   = "Docker repository for backend service"
   format        = "DOCKER"
   project       = var.gcp_project_id
-  depends_on    = [google_project_service.apis]
+}
+resource "google_artifact_registry_repository" "frontend_repo" {
+  location      = var.gcp_region
+  repository_id = "ai-hiring-platform-frontend"
+  description   = "Docker repository for frontend service"
+  format        = "DOCKER"
+  project       = var.gcp_project_id
 }
 
+# --- Application Services ---
 resource "google_cloud_run_v2_service" "backend_service" {
   name     = "api-backend"
   location = var.gcp_region
   project  = var.gcp_project_id
   template {
     containers {
-      image = "us-docker.pkg.dev/cloudrun/container/hello"
+      image = "us-docker.pkg.dev/cloudrun/container/hello" # Placeholder
     }
   }
   depends_on = [google_sql_database_instance.main_instance]
 }
 
-
-# --- Permissions ---
-resource "google_cloud_run_service_iam_member" "allow_public" {
-  location = google_cloud_run_v2_service.backend_service.location
-  project  = google_cloud_run_v2_service.backend_service.project
-  service  = google_cloud_run_v2_service.backend_service.name
-  role     = "roles/run.invoker"
-  member   = "allUsers"
+# THE FIX: Add a new Cloud Run service for the frontend
+resource "google_cloud_run_v2_service" "frontend_service" {
+  name     = "frontend-ui"
+  location = var.gcp_region
+  project  = var.gcp_project_id
+  template {
+    containers {
+      image = "us-docker.pkg.dev/cloudrun/container/hello" # Placeholder
+    }
+  }
 }
-
-resource "google_secret_manager_secret_iam_member" "allow_run_access_db_secret" {
-  project   = google_secret_manager_secret.db_password_secret.project
-  secret_id = google_secret_manager_secret.db_password_secret.secret_id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:1059515914490-compute@developer.gserviceaccount.com"
-}
-
-data "google_secret_manager_secret" "google_api_key_secret_data" {
-  project   = var.gcp_project_id
-  secret_id = "GOOGLE_API_KEY"
-}
-
-resource "google_secret_manager_secret_iam_member" "allow_run_access_google_api_key" {
-  project   = data.google_secret_manager_secret.google_api_key_secret_data.project
-  secret_id = data.google_secret_manager_secret.google_api_key_secret_data.secret_id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:1059515914490-compute@developer.gserviceaccount.com"
-}
-
-resource "google_project_iam_member" "allow_run_connect_sql" {
-  project = var.gcp_project_id
-  role    = "roles/cloudsql.client"
-  member  = "serviceAccount:1059515914490-compute@developer.gserviceaccount.com"
-}
-
 
 # --- Outputs ---
 output "backend_service_url" {
   description = "URL of the backend Cloud Run service"
   value       = google_cloud_run_v2_service.backend_service.uri
 }
-
-output "db_instance_connection_name" {
-  description = "The connection name of the Cloud SQL instance for the application."
-  value       = google_sql_database_instance.main_instance.connection_name
-  sensitive   = true
+output "frontend_service_url" {
+  description = "URL of the frontend Cloud Run service"
+  value       = google_cloud_run_v2_service.frontend_service.uri
 }
