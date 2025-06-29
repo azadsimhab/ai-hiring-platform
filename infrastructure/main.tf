@@ -1,4 +1,4 @@
-# infrastructure/main.tf (Updated for new project: hiringagent)
+# infrastructure/main.tf (FINAL - Pointing to 'hiringagent' project)
 
 terraform {
   required_providers {
@@ -131,7 +131,6 @@ resource "google_secret_manager_secret_iam_member" "allow_run_access_db_secret" 
   project   = google_secret_manager_secret.db_password_secret.project
   secret_id = google_secret_manager_secret.db_password_secret.secret_id
   role      = "roles/secretmanager.secretAccessor"
-  # THE FIX: Using your new Compute Engine default service account
   member    = "serviceAccount:1059515914490-compute@developer.gserviceaccount.com"
 }
 
@@ -144,14 +143,12 @@ resource "google_secret_manager_secret_iam_member" "allow_run_access_google_api_
   project   = data.google_secret_manager_secret.google_api_key_secret_data.project
   secret_id = data.google_secret_manager_secret.google_api_key_secret_data.secret_id
   role      = "roles/secretmanager.secretAccessor"
-  # THE FIX: Using your new Compute Engine default service account
   member    = "serviceAccount:1059515914490-compute@developer.gserviceaccount.com"
 }
 
 resource "google_project_iam_member" "allow_run_connect_sql" {
   project = var.gcp_project_id
   role    = "roles/cloudsql.client"
-  # THE FIX: Using your new Compute Engine default service account
   member  = "serviceAccount:1059515914490-compute@developer.gserviceaccount.com"
 }
 
