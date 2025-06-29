@@ -1,4 +1,4 @@
-# infrastructure/main.tf (FINAL - With Frontend Service)
+# infrastructure/main.tf (FINAL - For 'hiringagent' project)
 
 terraform {
   required_providers {
@@ -42,15 +42,18 @@ resource "google_sql_database_instance" "main_instance" {
     }
   }
 }
+
 resource "google_sql_database" "hiring_db" {
   name     = "hiring_platform_db"
   instance = google_sql_database_instance.main_instance.name
   project  = var.gcp_project_id
 }
+
 resource "random_password" "db_user_password" {
   length  = 24
   special = true
 }
+
 resource "google_secret_manager_secret" "db_password_secret" {
   secret_id = "db-user-password"
   project   = var.gcp_project_id
@@ -58,10 +61,12 @@ resource "google_secret_manager_secret" "db_password_secret" {
     auto {}
   }
 }
+
 resource "google_secret_manager_secret_version" "db_password_secret_version" {
   secret      = google_secret_manager_secret.db_password_secret.id
   secret_data = random_password.db_user_password.result
 }
+
 resource "google_sql_user" "db_user" {
   name     = "hiring_app_user"
   instance = google_sql_database_instance.main_instance.name
@@ -77,13 +82,6 @@ resource "google_artifact_registry_repository" "backend_repo" {
   format        = "DOCKER"
   project       = var.gcp_project_id
 }
-resource "google_artifact_registry_repository" "frontend_repo" {
-  location      = var.gcp_region
-  repository_id = "ai-hiring-platform-frontend"
-  description   = "Docker repository for frontend service"
-  format        = "DOCKER"
-  project       = var.gcp_project_id
-}
 
 # --- Application Services ---
 resource "google_cloud_run_v2_service" "backend_service" {
@@ -96,26 +94,4 @@ resource "google_cloud_run_v2_service" "backend_service" {
     }
   }
   depends_on = [google_sql_database_instance.main_instance]
-}
-
-# THE FIX: Add a new Cloud Run service for the frontend
-resource "google_cloud_run_v2_service" "frontend_service" {
-  name     = "frontend-ui"
-  location = var.gcp_region
-  project  = var.gcp_project_id
-  template {
-    containers {
-      image = "us-docker.pkg.dev/cloudrun/container/hello" # Placeholder
-    }
-  }
-}
-
-# --- Outputs ---
-output "backend_service_url" {
-  description = "URL of the backend Cloud Run service"
-  value       = google_cloud_run_v2_service.backend_service.uri
-}
-output "frontend_service_url" {
-  description = "URL of the frontend Cloud Run service"
-  value       = google_cloud_run_v2_service.frontend_service.uri
 }
