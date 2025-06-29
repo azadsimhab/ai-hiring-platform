@@ -1,4 +1,4 @@
-# infrastructure/main.tf (FINAL - Adds all required secret permissions)
+# infrastructure/main.tf (Updated for new project: hiringagent)
 
 terraform {
   required_providers {
@@ -94,6 +94,7 @@ resource "google_sql_user" "db_user" {
   project  = var.gcp_project_id
 }
 
+
 # --- Application Resources ---
 resource "google_artifact_registry_repository" "backend_repo" {
   location      = var.gcp_region
@@ -116,6 +117,7 @@ resource "google_cloud_run_v2_service" "backend_service" {
   depends_on = [google_sql_database_instance.main_instance]
 }
 
+
 # --- Permissions ---
 resource "google_cloud_run_service_iam_member" "allow_public" {
   location = google_cloud_run_v2_service.backend_service.location
@@ -125,15 +127,14 @@ resource "google_cloud_run_service_iam_member" "allow_public" {
   member   = "allUsers"
 }
 
-# Permission for the DB Password Secret
 resource "google_secret_manager_secret_iam_member" "allow_run_access_db_secret" {
   project   = google_secret_manager_secret.db_password_secret.project
   secret_id = google_secret_manager_secret.db_password_secret.secret_id
   role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:83797326158-compute@developer.gserviceaccount.com"
+  # THE FIX: Using your new Compute Engine default service account
+  member    = "serviceAccount:1059515914490-compute@developer.gserviceaccount.com"
 }
 
-# THE FIX: Add permission for the GOOGLE_API_KEY secret
 data "google_secret_manager_secret" "google_api_key_secret_data" {
   project   = var.gcp_project_id
   secret_id = "GOOGLE_API_KEY"
@@ -143,15 +144,17 @@ resource "google_secret_manager_secret_iam_member" "allow_run_access_google_api_
   project   = data.google_secret_manager_secret.google_api_key_secret_data.project
   secret_id = data.google_secret_manager_secret.google_api_key_secret_data.secret_id
   role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:83797326158-compute@developer.gserviceaccount.com"
+  # THE FIX: Using your new Compute Engine default service account
+  member    = "serviceAccount:1059515914490-compute@developer.gserviceaccount.com"
 }
 
-# Permission for Cloud SQL Connection
 resource "google_project_iam_member" "allow_run_connect_sql" {
   project = var.gcp_project_id
   role    = "roles/cloudsql.client"
-  member  = "serviceAccount:83797326158-compute@developer.gserviceaccount.com"
+  # THE FIX: Using your new Compute Engine default service account
+  member  = "serviceAccount:1059515914490-compute@developer.gserviceaccount.com"
 }
+
 
 # --- Outputs ---
 output "backend_service_url" {
