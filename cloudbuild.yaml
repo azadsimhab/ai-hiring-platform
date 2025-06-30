@@ -1,49 +1,80 @@
-# cloudbuild.yaml (FINAL - Fully Self-Contained)
+# cloudbuild.yaml (FINAL - Corrected Permissions and Service Identity)
 
 steps:
-  # This single step does everything to avoid external builder issues.
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    id: 'Full Build, Infrastructure, and Deploy'
+  # --- PHASE 1: PROVISION INFRASTRUCTURE ---
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'Terraform Apply'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        # --- PHASE 1: INSTALL ALL TOOLS ---
-        echo "INFO: Installing all necessary tools..."
-        apt-get update -y && apt-get install -y curl unzip
-
         # Install Terraform
-        curl -o terraform.zip https://releases.hashicorp.com/terraform/1.0.0/terraform_1.0.0_linux_amd64.zip
+        apt-get update && apt-get install -y unzip
+        curl -o terraform.zip https://releases.hashicorp.com/terraform/1.5.7/terraform_1.5.7_linux_amd64.zip
         unzip terraform.zip
         mv terraform /usr/local/bin/
+        
+        # Run Terraform
+        cd infrastructure
+        terraform init
+        # Use -target to avoid the "Secret already exists" error from previous failed runs
+        terraform apply -auto-approve -target=google_artifact_registry_repository.backend_repo -target=google_artifact_registry_repository.frontend_repo -target=google_sql_database_instance.main_instance || echo "INFO: Continuing after non-critical terraform error."
+        terraform apply -auto-approve
+        cd ..
 
+  # --- PHASE 2: BUILD & DEPLOY BACKEND ---
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Build Backend'
+    args:
+      - 'build'
+      - '--tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest'
+      - '-f'
+      - 'backend/Dockerfile'
+      - '.'
+    wait_for: ['Terraform Apply']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Push Backend'
+    args: ['push', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest']
+    wait_for: ['Build Backend']
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'Deploy Backend'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'api-backend'
+      - '--image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/api-backend:latest'
+      - '--region'
+      - '${_REGION}'
+      - '--allow-unauthenticated'
+      # CRITICAL FIX: Tell Cloud Run to use our powerful service account
+      - '--service-account=hiring-ai@${PROJECT_ID}.iam.gserviceaccount.com'
+      - '--add-cloudsql-instances=${PROJECT_ID}:${_REGION}:hiring-platform-main-db'
+      - '--update-secrets=DB_PASS=db-user-password:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest'
+      - '--set-env-vars=DB_USER=hiring_app_user,DB_NAME=hiring_platform_db,INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${_REGION}:hiring-platform-main-db,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${_REGION}'
+    wait_for: ['Push Backend']
+
+  # --- PHASE 3: BUILD & DEPLOY FRONTEND ---
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'Build and Deploy Frontend'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
         # Install Node.js and Firebase Tools
+        apt-get update -y && apt-get install -y curl
         curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
         apt-get install -y nodejs
         npm install -g firebase-tools
-        echo "INFO: All tools installed."
 
-        # --- PHASE 2: PROVISION INFRASTRUCTURE ---
-        echo "INFO: Running Terraform..."
-        cd infrastructure
-        terraform init
-        terraform apply -auto-approve -var="gcp_project_id=${PROJECT_ID}"
-        cd ..
-        echo "INFO: Infrastructure provisioning complete."
-
-        # --- PHASE 3: BUILD & DEPLOY BACKEND ---
-        echo "INFO: Building and deploying backend..."
-        gcloud builds submit --config=cloudbuild-backend.yaml --substitutions=_REGION=${_REGION},_AR_REPO_NAME=${_AR_REPO_NAME} .
-        echo "INFO: Backend deployment complete."
-
-        # --- PHASE 4: BUILD & DEPLOY FRONTEND ---
-        echo "INFO: Building and deploying frontend..."
+        # Build and Deploy
         cd frontend
         npm install
         npm run build
         firebase deploy --project=$PROJECT_ID --only=hosting --non-interactive --token "$$FIREBASE_TOKEN"
-        echo "INFO: Frontend deployment complete."
-
+    wait_for: ['Deploy Backend']
     secret_env: ['FIREBASE_TOKEN']
 
 # Use the powerful service account you created for all steps.
