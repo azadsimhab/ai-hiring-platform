@@ -1,7 +1,14 @@
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 
-from sqlalchemy.orm import declarative_base
+# This file is for setting up the database connection components.
+# The actual connection string is built in main.py to use secrets.
 
-# This is all we need in this file.
-# We are defining a common Base for our SQLAlchemy models to inherit from.
-# The engine and session logic will now be handled directly in main.py's lifespan.
+SQLALCHEMY_DATABASE_URL = "postgresql://user:password@postgresserver/db"
+
+engine = create_engine(SQLALCHEMY_DATABASE_URL)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 Base = declarative_base()

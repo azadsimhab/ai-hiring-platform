@@ -30,6 +30,7 @@ async def lifespan(app: FastAPI):
     db_uri = f"postgresql+psycopg2://{settings.DB_USER}:{settings.DB_PASS}@/{settings.DB_NAME}?host={db_socket_dir}/{settings.INSTANCE_CONNECTION_NAME}"
     engine = create_engine(db_uri)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    print("INFO: Creating database tables...")
     Base.metadata.create_all(bind=engine)
     print("INFO: Database tables verified/created. Application startup complete.")
     yield
@@ -56,8 +57,8 @@ async def parse_hiring_request_document(file: UploadFile = File(...)):
     print(f"INFO: Received file for parsing: {file.filename}")
     try:
         file_contents = await file.read()
-        model = GenerativeModel("gemini-1.0-pro-vision")
-        prompt = "You are an expert HR assistant. Analyze the provided document and extract the key information into a structured JSON object. The required fields are: job_title, department, manager, level, salary_range, benefits_perks, locations, urgency, other_remarks, employment_type, and hiring_type. If a value is not found, use a null value for that field. Your response must be only the raw JSON object, with no extra text, explanations, or markdown formatting."
+        model = GenerativeModel("gemini-1.5-flash")
+        prompt = "You are an expert HR assistant. Analyze the provided document and extract hiring request details into a JSON object with these exact keys: job_title, department, manager, level, salary_range, benefits_perks, locations, urgency, other_remarks, employment_type, hiring_type. Use null for missing fields. Respond with ONLY the raw JSON object."
 
         request_parts = [Part.from_data(data=file_contents, mime_type=file.content_type), prompt]
 
