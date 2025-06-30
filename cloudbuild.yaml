@@ -1,78 +1,59 @@
-# cloudbuild.yaml (FINAL - With Infrastructure-as-Code Step)
+# cloudbuild.yaml (FINAL - Fully Self-Contained)
 
 steps:
-  # STEP 0: Run Terraform to provision/verify the infrastructure
-  - name: 'hashicorp/terraform:1.0'
-    id: 'Terraform Init'
-    args: ['init']
-    dir: 'infrastructure'
-
-  - name: 'hashicorp/terraform:1.0'
-    id: 'Terraform Apply'
-    args: ['apply', '-auto-approve', '-var=gcp_project_id=${PROJECT_ID}']
-    dir: 'infrastructure'
-    wait_for: ['Terraform Init']
-
-  # STEP 1: Build the backend Docker image
-  - name: 'gcr.io/cloud-builders/docker'
-    id: 'Build Backend'
-    args:
-      - 'build'
-      - '--tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/ai-hiring-platform-backend/api-backend:latest'
-      - '-f'
-      - 'backend/Dockerfile'
-      - '.'
-    wait_for: ['Terraform Apply']
-
-  # STEP 2: Push the backend image
-  - name: 'gcr.io/cloud-builders/docker'
-    id: 'Push Backend'
-    args: ['push', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/ai-hiring-platform-backend/api-backend:latest']
-    wait_for: ['Build Backend']
-
-  # STEP 3: Deploy the backend service
+  # This single step does everything to avoid external builder issues.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    id: 'Deploy Backend'
-    entrypoint: 'gcloud'
+    id: 'Full Build, Infrastructure, and Deploy'
+    entrypoint: 'bash'
     args:
-      - 'run'
-      - 'deploy'
-      - 'api-backend'
-      - '--image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/ai-hiring-platform-backend/api-backend:latest'
-      - '--region'
-      - '${_REGION}'
-      - '--allow-unauthenticated'
-      - '--add-cloudsql-instances=${PROJECT_ID}:${_REGION}:hiring-platform-main-db'
-      - '--update-secrets=DB_PASS=db-user-password:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest'
-      - '--set-env-vars=DB_USER=hiring_app_user,DB_NAME=hiring_platform_db,INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${_REGION}:hiring-platform-main-db'
-    wait_for: ['Push Backend']
+      - '-c'
+      - |
+        # --- PHASE 1: INSTALL ALL TOOLS ---
+        echo "INFO: Installing all necessary tools..."
+        apt-get update -y && apt-get install -y curl unzip
 
-  # STEP 4: Install frontend dependencies
-  - name: 'gcr.io/cloud-builders/npm'
-    id: 'Frontend Install'
-    args: ['install']
-    dir: 'frontend'
+        # Install Terraform
+        curl -o terraform.zip https://releases.hashicorp.com/terraform/1.0.0/terraform_1.0.0_linux_amd64.zip
+        unzip terraform.zip
+        mv terraform /usr/local/bin/
 
-  # STEP 5: Create the production build of the React app
-  - name: 'gcr.io/cloud-builders/npm'
-    id: 'Frontend Build'
-    args: ['run', 'build']
-    dir: 'frontend'
-    wait_for: ['Frontend Install']
+        # Install Node.js and Firebase Tools
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+        apt-get install -y nodejs
+        npm install -g firebase-tools
+        echo "INFO: All tools installed."
 
-  # STEP 6: Deploy to Firebase Hosting
-  - name: 'gcr.io/firebase/firebase'
-    id: 'Deploy Frontend'
-    args:
-      - 'deploy'
-      - '--project=${PROJECT_ID}'
-      - '--only=hosting'
-      - '--non-interactive'
-    dir: 'frontend'
-    wait_for: ['Frontend Build']
+        # --- PHASE 2: PROVISION INFRASTRUCTURE ---
+        echo "INFO: Running Terraform..."
+        cd infrastructure
+        terraform init
+        terraform apply -auto-approve -var="gcp_project_id=${PROJECT_ID}"
+        cd ..
+        echo "INFO: Infrastructure provisioning complete."
+
+        # --- PHASE 3: BUILD & DEPLOY BACKEND ---
+        echo "INFO: Building and deploying backend..."
+        gcloud builds submit --config=cloudbuild-backend.yaml --substitutions=_REGION=${_REGION},_AR_REPO_NAME=${_AR_REPO_NAME} .
+        echo "INFO: Backend deployment complete."
+
+        # --- PHASE 4: BUILD & DEPLOY FRONTEND ---
+        echo "INFO: Building and deploying frontend..."
+        cd frontend
+        npm install
+        npm run build
+        firebase deploy --project=$PROJECT_ID --only=hosting --non-interactive --token "$$FIREBASE_TOKEN"
+        echo "INFO: Frontend deployment complete."
+
+    secret_env: ['FIREBASE_TOKEN']
 
 # Use the powerful service account you created for all steps.
 service_account: 'projects/hiringagent/serviceAccounts/hiring-ai@hiringagent.iam.gserviceaccount.com'
+
+# Make the Firebase Token available to the build
+available_secrets:
+  secret_manager:
+  - version_name: projects/hiringagent/secrets/FIREBASE_TOKEN/versions/latest
+    env: 'FIREBASE_TOKEN'
 
 # Define substitutions
 substitutions:
