@@ -29,11 +29,10 @@ provider "google" {
   region  = var.gcp_region
 }
 
-# --- Database Resources ---
 resource "google_sql_database_instance" "main_instance" {
   name             = "hiring-platform-main-db"
   database_version = "POSTGRES_14"
-  region           = var.gcp_region # Corrected from project_id
+  region           = var.gcp_region
   project          = var.gcp_project_id
   settings {
     tier = "db-f1-micro"
@@ -74,7 +73,6 @@ resource "google_sql_user" "db_user" {
   project  = var.gcp_project_id
 }
 
-# --- Application Registries ---
 resource "google_artifact_registry_repository" "backend_repo" {
   location      = var.gcp_region
   repository_id = "ai-hiring-platform-backend"
@@ -91,7 +89,6 @@ resource "google_artifact_registry_repository" "frontend_repo" {
   project       = var.gcp_project_id
 }
 
-# --- Application Services ---
 resource "google_cloud_run_v2_service" "backend_service" {
   name     = "api-backend"
   location = var.gcp_region
@@ -104,7 +101,6 @@ resource "google_cloud_run_v2_service" "backend_service" {
   depends_on = [google_sql_database_instance.main_instance]
 }
 
-# Add a new Cloud Run service for the frontend
 resource "google_cloud_run_v2_service" "frontend_service" {
   name     = "frontend-ui"
   location = var.gcp_region
