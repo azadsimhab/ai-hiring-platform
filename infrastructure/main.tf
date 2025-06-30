@@ -1,4 +1,4 @@
-# infrastructure/main.tf (FINAL - For 'hiringagent' project)
+# infrastructure/main.tf (FINAL - Simplified for CI/CD Execution)
 
 terraform {
   required_providers {
@@ -29,10 +29,11 @@ provider "google" {
   region  = var.gcp_region
 }
 
+# --- Database Resources ---
 resource "google_sql_database_instance" "main_instance" {
   name             = "hiring-platform-main-db"
   database_version = "POSTGRES_14"
-  region           = var.gcp_region # Corrected this line
+  region           = var.gcp_region
   project          = var.gcp_project_id
   settings {
     tier = "db-f1-micro"
@@ -73,6 +74,7 @@ resource "google_sql_user" "db_user" {
   project  = var.gcp_project_id
 }
 
+# --- Application Registries ---
 resource "google_artifact_registry_repository" "backend_repo" {
   location      = var.gcp_region
   repository_id = "ai-hiring-platform-backend"
@@ -89,13 +91,14 @@ resource "google_artifact_registry_repository" "frontend_repo" {
   project       = var.gcp_project_id
 }
 
+# --- Application Services ---
 resource "google_cloud_run_v2_service" "backend_service" {
   name     = "api-backend"
   location = var.gcp_region
   project  = var.gcp_project_id
   template {
     containers {
-      image = "us-docker.pkg.dev/cloudrun/container/hello" # Placeholder
+      image = "us-docker.pkg.dev/cloudrun/container/hello"
     }
   }
   depends_on = [google_sql_database_instance.main_instance]
@@ -107,7 +110,7 @@ resource "google_cloud_run_v2_service" "frontend_service" {
   project  = var.gcp_project_id
   template {
     containers {
-      image = "us-docker.pkg.dev/cloudrun/container/hello" # Placeholder
+      image = "us-docker.pkg.dev/cloudrun/container/hello"
     }
   }
 }
