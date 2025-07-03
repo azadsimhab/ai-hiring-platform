@@ -11,13 +11,9 @@ steps:
         # --- PHASE 1: INSTALL ALL TOOLS ---
         echo "INFO: Installing all necessary tools..."
         apt-get update -y && apt-get install -y curl unzip
-
-        # Install Terraform
         curl -o terraform.zip https://releases.hashicorp.com/terraform/1.5.7/terraform_1.5.7_linux_amd64.zip
         unzip terraform.zip
         mv terraform /usr/local/bin/
-
-        # Install Node.js and Firebase Tools
         curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
         apt-get install -y nodejs
         npm install -g firebase-tools
@@ -33,7 +29,7 @@ steps:
 
         # --- PHASE 3: BUILD & DEPLOY BACKEND ---
         echo "INFO: Building and deploying backend..."
-        gcloud builds submit --config=cloudbuild-backend.yaml --substitutions=_REGION=${_REGION},_AR_REPO_NAME=${_AR_REPO_NAME} .
+        gcloud builds submit --config=cloudbuild-backend.yaml --substitutions=_REGION=us-central1,_AR_REPO_NAME=ai-hiring-platform-backend .
         echo "INFO: Backend deployment complete."
 
         # --- PHASE 4: BUILD & DEPLOY FRONTEND ---
@@ -41,16 +37,17 @@ steps:
         cd frontend
         npm install
         npm run build
-        firebase deploy --project=$PROJECT_ID --only=hosting --non-interactive
-        echo "INFO: Firebase deployment complete."
+        firebase deploy --project=$PROJECT_ID --only=hosting --non-interactive --token "$$FIREBASE_TOKEN"
+        echo "INFO: Frontend deployment complete."
 
 # Use the powerful service account you created for all steps.
 service_account: 'projects/hiringagent/serviceAccounts/hiring-ai@hiringagent.iam.gserviceaccount.com'
 
-# Define substitutions
-substitutions:
-  _REGION: 'us-central1'
-  _AR_REPO_NAME: 'ai-hiring-platform-backend'
+# Make the Firebase Token available to the build
+available_secrets:
+  secret_manager:
+  - version_name: projects/hiringagent/secrets/FIREBASE_TOKEN/versions/latest
+    env: 'FIREBASE_TOKEN'
 
 options:
   logging: CLOUD_LOGGING_ONLY
