@@ -1,4 +1,4 @@
-# infrastructure/main.tf (FINAL - For CI/CD Execution)
+# infrastructure/main.tf (FINAL - Cleaned and Corrected)
 
 terraform {
   required_providers {
@@ -29,7 +29,6 @@ provider "google" {
   region  = var.gcp_region
 }
 
-# --- Database Resources ---
 resource "google_sql_database_instance" "main_instance" {
   name             = "hiring-platform-main-db"
   database_version = "POSTGRES_14"
@@ -74,7 +73,6 @@ resource "google_sql_user" "db_user" {
   project  = var.gcp_project_id
 }
 
-# --- Application Registries ---
 resource "google_artifact_registry_repository" "backend_repo" {
   location      = var.gcp_region
   repository_id = "ai-hiring-platform-backend"
