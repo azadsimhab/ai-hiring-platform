@@ -82,35 +82,3 @@ resource "google_artifact_registry_repository" "backend_repo" {
   format        = "DOCKER"
   project       = var.gcp_project_id
 }
-
-resource "google_artifact_registry_repository" "frontend_repo" {
-  location      = var.gcp_region
-  repository_id = "ai-hiring-platform-frontend"
-  description   = "Docker repository for frontend service"
-  format        = "DOCKER"
-  project       = var.gcp_project_id
-}
-
-# --- Application Services ---
-resource "google_cloud_run_v2_service" "backend_service" {
-  name     = "api-backend"
-  location = var.gcp_region
-  project  = var.gcp_project_id
-  template {
-    containers {
-      image = "us-docker.pkg.dev/cloudrun/container/hello" # Placeholder
-    }
-  }
-  depends_on = [google_sql_database_instance.main_instance]
-}
-
-resource "google_cloud_run_v2_service" "frontend_service" {
-  name     = "frontend-ui"
-  location = var.gcp_region
-  project  = var.gcp_project_id
-  template {
-    containers {
-      image = "us-docker.pkg.dev/cloudrun/container/hello" # Placeholder
-    }
-  }
-}

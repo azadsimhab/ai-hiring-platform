@@ -1,43 +1,63 @@
-INFO 2025-07-03T17:21:39.314827458Z Finished Step #0 - "Terraform Init and Apply"
-INFO 2025-07-03T17:21:39.314998758Z ERROR
-  {
-    "textPayload": "ERROR",
-    "insertId": "6866381a-155b-423f-a264-60a48874d92f-345",
-    "resource": {
-      "type": "build",
-      "labels": {
-        "build_trigger_id": "b61bc1d7-9edb-422c-85d1-11bcd0396427",
-        "build_id": "6866381a-155b-423f-a264-60a48874d92f",
-        "project_id": "hiringagent"
-      }
-    },
-    "timestamp": "2025-07-03T17:21:39.314998758Z",
-    "severity": "INFO",
-    "labels": {
-      "build_step": "MAIN",
-      "build_tags": "trigger-b61bc1d7-9edb-422c-85d1-11bcd0396427"
-    },
-    "logName": "projects/hiringagent/logs/cloudbuild",
-    "receiveTimestamp": "2025-07-03T17:21:39.494659955Z"
-  }
-INFO 2025-07-03T17:21:39.315037101Z ERROR: build step 0 "hashicorp/terraform:1.5.7" failed: step exited with non-zero status: 1
-  {
-    "textPayload": "ERROR: build step 0 \"hashicorp/terraform:1.5.7\" failed: step exited with non-zero status: 1",
-    "insertId": "6866381a-155b-423f-a264-60a48874d92f-346",
-    "resource": {
-      "type": "build",
-      "labels": {
-        "build_trigger_id": "b61bc1d7-9edb-422c-85d1-11bcd0396427",
-        "project_id": "hiringagent",
-        "build_id": "6866381a-155b-423f-a264-60a48874d92f"
-      }
-    },
-    "timestamp": "2025-07-03T17:21:39.315037101Z",
-    "severity": "INFO",
-    "labels": {
-      "build_tags": "trigger-b61bc1d7-9edb-422c-85d1-11bcd0396427",
-      "build_step": "MAIN"
-    },
-    "logName": "projects/hiringagent/logs/cloudbuild",
-    "receiveTimestamp": "2025-07-03T17:21:39.494659955Z"
-  }
+# cloudbuild.yaml (FINAL - Fully Self-Contained Professional Pipeline)
+
+steps:
+  # This single step installs all tools, provisions infrastructure, and deploys.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'Full Build, Infrastructure, and Deploy'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -e # Exit immediately if a command exits with a non-zero status.
+
+        # --- PHASE 1: INSTALL ALL TOOLS ---
+        echo "INFO: Installing all necessary tools..."
+        apt-get update -y && apt-get install -y curl unzip
+
+        # Install Terraform
+        curl -o terraform.zip https://releases.hashicorp.com/terraform/1.5.7/terraform_1.5.7_linux_amd64.zip
+        unzip terraform.zip
+        mv terraform /usr/local/bin/
+
+        # Install Node.js and Firebase Tools
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+        apt-get install -y nodejs
+        npm install -g firebase-tools
+        echo "INFO: All tools installed successfully."
+
+        # --- PHASE 2: PROVISION INFRASTRUCTURE ---
+        echo "INFO: Running Terraform..."
+        cd infrastructure
+        terraform init
+        terraform apply -auto-approve -var="gcp_project_id=${PROJECT_ID}"
+        cd ..
+        echo "INFO: Infrastructure provisioning complete."
+
+        # --- PHASE 3: BUILD & DEPLOY BACKEND ---
+        echo "INFO: Building Backend Docker image..."
+        gcloud builds submit --tag gcr.io/${PROJECT_ID}/api-backend:latest ./backend
+        
+        echo "INFO: Deploying Backend to Cloud Run..."
+        gcloud run deploy api-backend \
+          --image gcr.io/${PROJECT_ID}/api-backend:latest \
+          --region us-central1 \
+          --allow-unauthenticated \
+          --service-account=hiring-ai@${PROJECT_ID}.iam.gserviceaccount.com \
+          --add-cloudsql-instances=${PROJECT_ID}:us-central1:hiring-platform-main-db \
+          --update-secrets=DB_PASS=db-user-password:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest \
+          --set-env-vars=DB_USER=hiring_app_user,DB_NAME=hiring_platform_db,INSTANCE_CONNECTION_NAME=${PROJECT_ID}:us-central1:hiring-platform-main-db,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=us-central1
+        echo "INFO: Backend deployment complete."
+
+        # --- PHASE 4: BUILD & DEPLOY FRONTEND ---
+        echo "INFO: Building and Deploying Frontend..."
+        cd frontend
+        npm install
+        npm run build
+        firebase deploy --project=$PROJECT_ID --only=hosting --non-interactive
+        echo "INFO: Frontend deployment complete."
+
+# Use the powerful service account you created for all steps.
+service_account: 'projects/hiringagent/serviceAccounts/hiring-ai@hiringagent.iam.gserviceaccount.com'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
