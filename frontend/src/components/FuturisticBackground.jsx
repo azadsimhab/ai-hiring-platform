@@ -122,7 +122,7 @@ const FlowingPath = ({ count = 80, nodeSize = 0.05, color = '#0064ff', speed = 0
   return (
     <group ref={group}>
       {/* Nodes */}
-      {points.current.map((point, i) => (
+      {Array.isArray(points.current) && points.current.length > 0 && points.current.map((point, i) => (
         <mesh key={`node-${i}`} position={point.position}>
           <sphereGeometry args={[point.size, 8, 8]} />
           <meshBasicMaterial color={color} transparent opacity={0.8} />
@@ -130,9 +130,10 @@ const FlowingPath = ({ count = 80, nodeSize = 0.05, color = '#0064ff', speed = 0
       ))}
       
       {/* Lines */}
-      {lines.current.map((line, i) => {
+      {Array.isArray(lines.current) && lines.current.length > 0 && lines.current.map((line, i) => {
         const fromPoint = points.current[line.from];
         const toPoint = points.current[line.to];
+        if (!fromPoint || !toPoint) return null;
         const distance = fromPoint.position.distanceTo(toPoint.position);
         
         return (
@@ -197,7 +198,7 @@ const Particles = ({ count = 200, color = '#0064ff' }) => {
   
   return (
     <group ref={particles}>
-      {particlePositions.map((data, i) => (
+      {Array.isArray(particlePositions) && particlePositions.length > 0 && particlePositions.map((data, i) => (
         <mesh key={i} position={data.position}>
           <sphereGeometry args={[0.05, 8, 8]} />
           <meshBasicMaterial 
@@ -245,15 +246,17 @@ const Scene = ({ color = '#0064ff', density = 1 }) => {
     <>
       <FlowingPath count={nodeCount} color={color} />
       <Particles count={particleCount} color={color} />
-      
-      <EffectComposer>
-        <Bloom 
-          intensity={1.5} 
-          luminanceThreshold={0.1} 
-          luminanceSmoothing={0.9} 
-        />
-        <Vignette eskil={false} offset={0.1} darkness={0.8} />
-      </EffectComposer>
+      {/* Defensive: Only render EffectComposer if Bloom and Vignette are available */}
+      {typeof Bloom !== 'undefined' && typeof Vignette !== 'undefined' && (
+        <EffectComposer>
+          <Bloom 
+            intensity={1.5} 
+            luminanceThreshold={0.1} 
+            luminanceSmoothing={0.9} 
+          />
+          <Vignette eskil={false} offset={0.1} darkness={0.8} />
+        </EffectComposer>
+      )}
     </>
   );
 };
