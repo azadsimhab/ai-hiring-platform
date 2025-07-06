@@ -1,0 +1,45 @@
+# backend/requirements.txt
+#
+# This file lists the Python dependencies for the FastAPI backend application.
+# It is used by `pip` to install all required packages.
+
+# --- Core Web Framework ---
+# FastAPI is the main web framework, and Uvicorn is the ASGI server to run it.
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+
+# --- Database & ORM ---
+# SQLAlchemy is the ORM for database interaction.
+# Psycopg2 is the adapter for our PostgreSQL database (Cloud SQL).
+# Alembic is used for handling database schema migrations.
+sqlalchemy>=2.0.23
+psycopg2-binary>=2.9.9
+alembic>=1.12.1
+
+# --- Google Cloud Services ---
+# Client libraries for interacting with various Google Cloud services.
+google-cloud-aiplatform>=1.38.1     # For Vertex AI services, including Gemini
+google-generativeai>=0.3.1          # Specific client for Gemini API
+google-cloud-storage>=2.14.0        # For Cloud Storage (resumes, videos, etc.)
+google-cloud-secret-manager>=2.18.0 # For securely accessing API keys and DB credentials
+
+# --- Authentication & Security ---
+# python-jose handles JWT creation and validation.
+# passlib is used for password hashing and verification.
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+
+# --- Data Validation & Utilities ---
+# Pydantic is used for data validation (core to FastAPI).
+# python-multipart is required for handling file uploads (e.g., resumes).
+pydantic[email]>=2.5.2
+python-multipart>=0.0.6
+
+# --- Document Parsing ---
+# Libraries for extracting text from uploaded resume files.
+PyPDF2>=3.0.1           # For parsing PDF files
+python-docx>=1.1.0      # For parsing .docx files
+
+# --- Utilities ---
+# Tenacity is a general-purpose retrying library, useful for robust API calls.
+tenacity>=8.2.3

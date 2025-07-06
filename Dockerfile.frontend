@@ -1,0 +1,53 @@
+# Dockerfile.frontend
+#
+# This Dockerfile creates a production-ready container for the React frontend.
+# It uses a multi-stage build process to ensure the final image is small and secure.
+#
+# Stage 1: Build the React application using Node.js.
+# Stage 2: Serve the static build files using a lightweight Nginx server.
+
+# ===================================================================================
+# Stage 1: Build Environment
+# ===================================================================================
+FROM node:18-alpine AS build
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Copy package.json and package-lock.json for dependency installation
+# This leverages Docker's layer caching.
+COPY package.json ./
+COPY package-lock.json ./
+
+# Install dependencies using 'npm ci' for faster, more reliable builds in CI/CD
+# It uses the exact versions from package-lock.json.
+RUN npm ci
+
+# Copy the rest of the application source code into the container
+COPY . .
+
+# Build the React application for production.
+# The output will be placed in the /app/build directory.
+RUN npm run build
+
+# ===================================================================================
+# Stage 2: Production Environment
+# ===================================================================================
+FROM nginx:stable-alpine
+
+# Copy the static files from the build stage to the Nginx public directory
+COPY --from=build /app/build /usr/share/nginx/html
+
+# Copy the custom Nginx configuration file.
+# This file is essential for serving a Single-Page Application (SPA) like React,
+# as it directs all routing requests to the index.html file.
+# It also sets the server to listen on port 8080, which is standard for Cloud Run.
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Expose port 8080 to the outside world.
+# Google Cloud Run will automatically use this port.
+EXPOSE 8080
+
+# The default command from the nginx base image is `nginx -g 'daemon off;'`,
+# which is exactly what we need to run Nginx in the foreground.
+# Therefore, an explicit CMD is not required.
