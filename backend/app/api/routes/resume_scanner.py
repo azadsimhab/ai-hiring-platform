@@ -30,6 +30,10 @@ class CandidateProfile(BaseModel):
 resumes_db = []
 candidates_db = []
 
+@router.get("/")
+async def resume_scanner_root():
+    return {"message": "Resume Scanner API root"}
+
 @router.get("/resumes", response_model=List[Resume])
 async def get_resumes():
     """Get all resumes"""

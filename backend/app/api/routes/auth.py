@@ -91,3 +91,7 @@ async def get_current_user_info():
 async def test_auth():
     """Test endpoint for auth"""
     return {"message": "Auth routes are working!"}
+
+@router.get("/")
+async def auth_root():
+    return {"message": "Auth API root"}

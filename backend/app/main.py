@@ -146,7 +146,8 @@ route_modules = [
     ("jd_generator", "jd-generator"),
     ("resume_scanner", "resume-scanner"),
     ("multimodal_screening", "multimodal-screening"),
-    ("coding_test", "coding-test")
+    ("coding_test", "coding-test"),
+    ("ai", "ai-services")
 ]
 
 for module_name, tag in route_modules:
