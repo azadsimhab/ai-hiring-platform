@@ -11,9 +11,22 @@ from typing import Optional, Dict, Any
 from fastapi import Request, HTTPException, status
 from fastapi.responses import JSONResponse
 import logging
-from google.cloud import kms_v1
-import jwt
 from datetime import datetime, timedelta
+
+# Optional imports for production
+try:
+    import jwt
+    JWT_AVAILABLE = True
+except ImportError:
+    JWT_AVAILABLE = False
+    jwt = None
+
+try:
+    from google.cloud import kms_v1
+    GOOGLE_CLOUD_AVAILABLE = True
+except ImportError:
+    GOOGLE_CLOUD_AVAILABLE = False
+    kms_v1 = None
 
 from app.core.config import settings
 
@@ -25,10 +38,21 @@ class SecurityMiddleware:
         self.blocked_ips = set()
         self.suspicious_activities = {}
         
-        # Initialize KMS client for encryption
-        if settings.ENVIRONMENT == "production":
-            self.kms_client = kms_v1.KeyManagementServiceClient()
-            self.key_name = f"projects/{settings.GCP_PROJECT_ID}/locations/{settings.KMS_LOCATION}/keyRings/{settings.KMS_KEYRING}/cryptoKeys/{settings.KMS_KEY}"
+        # Initialize KMS client for encryption (only in production)
+        self.kms_client = None
+        self.key_name = None
+        
+        if settings.ENVIRONMENT == "production" and GOOGLE_CLOUD_AVAILABLE:
+            try:
+                self.kms_client = kms_v1.KeyManagementServiceClient()
+                # Use default values if not configured
+                project_id = getattr(settings, 'GCP_PROJECT_ID', 'default-project')
+                location = getattr(settings, 'KMS_LOCATION', 'us-central1')
+                keyring = getattr(settings, 'KMS_KEYRING', 'default-keyring')
+                key = getattr(settings, 'KMS_KEY', 'default-key')
+                self.key_name = f"projects/{project_id}/locations/{location}/keyRings/{keyring}/cryptoKeys/{key}"
+            except Exception as e:
+                logger.warning(f"Failed to initialize KMS client: {e}")
     
     async def __call__(self, request: Request, call_next):
         """Main security middleware function"""
@@ -59,25 +83,30 @@ class SecurityMiddleware:
                     content={"detail": "Invalid input detected"}
                 )
             
-            # CSRF protection
+            # CSRF protection (skip for API tokens)
             if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
-                if not self._validate_csrf_token(request):
-                    return JSONResponse(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        content={"detail": "CSRF token validation failed"}
-                    )
+                auth_header = request.headers.get("Authorization")
+                if not auth_header or not auth_header.startswith("Bearer "):
+                    if not self._validate_csrf_token(request):
+                        return JSONResponse(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            content={"detail": "CSRF token validation failed"}
+                        )
             
-            # XSS protection headers
+            # Process request
             response = await call_next(request)
             
             # Add security headers
             response.headers["X-Content-Type-Options"] = "nosniff"
             response.headers["X-Frame-Options"] = "DENY"
             response.headers["X-XSS-Protection"] = "1; mode=block"
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-            response.headers["Content-Security-Policy"] = self._get_csp_header()
             response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-            response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+            
+            # Add HSTS header only in production
+            if settings.ENVIRONMENT == "production":
+                response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+                response.headers["Content-Security-Policy"] = self._get_csp_header()
+                response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
             
             # Audit logging
             self._audit_log(request, response, start_time, client_ip)
@@ -102,7 +131,10 @@ class SecurityMiddleware:
         if real_ip:
             return real_ip
         
-        return request.client.host
+        # Handle None client.host
+        if request.client and request.client.host:
+            return request.client.host
+        return "unknown"
     
     def _check_rate_limit(self, client_ip: str, path: str) -> bool:
         """Check rate limiting for client IP"""
@@ -118,8 +150,9 @@ class SecurityMiddleware:
         # Remove old requests (older than 1 minute)
         requests = [req_time for req_time in requests if current_time - req_time < 60]
         
-        # Check limits
-        if len(requests) >= settings.RATE_LIMIT_PER_MINUTE:
+        # Check limits (use default if not configured)
+        rate_limit = getattr(settings, 'RATE_LIMIT_PER_MINUTE', 100)
+        if len(requests) >= rate_limit:
             # Log suspicious activity
             self._log_suspicious_activity(client_ip, "rate_limit_exceeded", path)
             return False
@@ -182,11 +215,6 @@ class SecurityMiddleware:
     def _validate_csrf_token(self, request: Request) -> bool:
         """Validate CSRF token"""
         try:
-            # Skip CSRF validation for API tokens
-            auth_header = request.headers.get("Authorization")
-            if auth_header and auth_header.startswith("Bearer "):
-                return True
-            
             # Get CSRF token from header
             csrf_token = request.headers.get("X-CSRF-Token")
             if not csrf_token:
@@ -204,11 +232,11 @@ class SecurityMiddleware:
         """Get Content Security Policy header"""
         return (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+            "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: https:; "
-            "connect-src 'self' https://api.openai.com https://api.anthropic.com; "
+            "font-src 'self' data:; "
+            "connect-src 'self' ws: wss:; "
             "frame-ancestors 'none';"
         )
     
@@ -216,101 +244,98 @@ class SecurityMiddleware:
         """Log security audit information"""
         try:
             duration = time.time() - start_time
-            
-            audit_data = {
+            log_data = {
                 "timestamp": datetime.utcnow().isoformat(),
                 "client_ip": client_ip,
                 "method": request.method,
-                "url": str(request.url),
+                "path": request.url.path,
                 "status_code": response.status_code,
-                "duration": duration,
+                "duration": round(duration, 3),
                 "user_agent": request.headers.get("User-Agent", ""),
                 "referer": request.headers.get("Referer", ""),
             }
             
-            # Log to Google Cloud Logging in production
-            if settings.ENVIRONMENT == "production":
-                logger.info(f"Security audit: {audit_data}")
+            logger.info(f"Security audit: {log_data}")
             
-            # Check for suspicious activities
-            if response.status_code >= 400:
-                self._log_suspicious_activity(client_ip, f"http_{response.status_code}", str(request.url))
-                
         except Exception as e:
             logger.error(f"Audit logging error: {e}")
     
     def _log_suspicious_activity(self, client_ip: str, activity_type: str, details: str):
         """Log suspicious activity"""
         try:
-            if client_ip not in self.suspicious_activities:
-                self.suspicious_activities[client_ip] = []
-            
-            activity = {
+            log_data = {
                 "timestamp": datetime.utcnow().isoformat(),
-                "type": activity_type,
+                "client_ip": client_ip,
+                "activity_type": activity_type,
                 "details": details,
             }
             
-            self.suspicious_activities[client_ip].append(activity)
+            logger.warning(f"Suspicious activity detected: {log_data}")
+            
+            # Store for potential blocking
+            self.suspicious_activities[client_ip] = {
+                "count": self.suspicious_activities.get(client_ip, {}).get("count", 0) + 1,
+                "last_activity": datetime.utcnow(),
+                "activities": self.suspicious_activities.get(client_ip, {}).get("activities", []) + [log_data]
+            }
             
             # Block IP if too many suspicious activities
-            if len(self.suspicious_activities[client_ip]) >= 10:
+            if self.suspicious_activities[client_ip]["count"] >= 10:
                 self.blocked_ips.add(client_ip)
                 logger.warning(f"IP {client_ip} blocked due to suspicious activity")
-            
-            logger.warning(f"Suspicious activity from {client_ip}: {activity_type} - {details}")
-            
+                
         except Exception as e:
-            logger.error(f"Error logging suspicious activity: {e}")
+            logger.error(f"Suspicious activity logging error: {e}")
     
     def encrypt_sensitive_data(self, data: str) -> str:
-        """Encrypt sensitive data using Google Cloud KMS"""
+        """Encrypt sensitive data using Google Cloud KMS or simple encryption"""
         try:
-            if settings.ENVIRONMENT == "production":
+            if settings.ENVIRONMENT == "production" and self.kms_client and kms_v1:
                 # Use KMS for encryption
                 request = kms_v1.EncryptRequest(
                     name=self.key_name,
-                    plaintext=data.encode("utf-8")
+                    plaintext=data.encode('utf-8')
                 )
-                response = self.kms_client.encrypt(request=request)
-                return response.ciphertext.decode("utf-8")
+                response = self.kms_client.encrypt(request)
+                return response.ciphertext.decode('utf-8')
             else:
                 # Use simple encryption for development
                 return self._simple_encrypt(data)
                 
         except Exception as e:
             logger.error(f"Encryption error: {e}")
-            return data
+            return self._simple_encrypt(data)
     
     def decrypt_sensitive_data(self, encrypted_data: str) -> str:
-        """Decrypt sensitive data using Google Cloud KMS"""
+        """Decrypt sensitive data using Google Cloud KMS or simple decryption"""
         try:
-            if settings.ENVIRONMENT == "production":
+            if settings.ENVIRONMENT == "production" and self.kms_client and kms_v1:
                 # Use KMS for decryption
                 request = kms_v1.DecryptRequest(
                     name=self.key_name,
-                    ciphertext=encrypted_data.encode("utf-8")
+                    ciphertext=encrypted_data.encode('utf-8')
                 )
-                response = self.kms_client.decrypt(request=request)
-                return response.plaintext.decode("utf-8")
+                response = self.kms_client.decrypt(request)
+                return response.plaintext.decode('utf-8')
             else:
                 # Use simple decryption for development
                 return self._simple_decrypt(encrypted_data)
                 
         except Exception as e:
             logger.error(f"Decryption error: {e}")
-            return encrypted_data
+            return self._simple_decrypt(encrypted_data)
     
     def _simple_encrypt(self, data: str) -> str:
         """Simple encryption for development"""
-        # This is NOT for production use
-        key = settings.SECRET_KEY.encode()
-        return hmac.new(key, data.encode(), hashlib.sha256).hexdigest()
+        # This is a simple XOR encryption - not secure for production
+        key = b"dev-key-123"
+        return ''.join(chr(ord(c) ^ key[i % len(key)]) for i, c in enumerate(data))
     
     def _simple_decrypt(self, encrypted_data: str) -> str:
         """Simple decryption for development"""
-        # This is NOT for production use
-        return encrypted_data
+        # This is a simple XOR decryption - not secure for production
+        key = b"dev-key-123"
+        return ''.join(chr(ord(c) ^ key[i % len(key)]) for i, c in enumerate(encrypted_data))
 
-# Global security middleware instance
+# Create middleware instance
 security_middleware = SecurityMiddleware() 

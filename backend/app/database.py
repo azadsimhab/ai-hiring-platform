@@ -6,18 +6,26 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Create database engine with Google Cloud SQL configuration
-engine = create_engine(
-    settings.DATABASE_URL,
-    pool_size=settings.DATABASE_POOL_SIZE,
-    max_overflow=settings.DATABASE_MAX_OVERFLOW,
-    echo=settings.ENVIRONMENT == "development",
-    # Google Cloud SQL specific settings
-    connect_args={
-        "connect_timeout": 10,
-        "application_name": "ai-hiring-platform"
-    }
-)
+# Create database engine with conditional configuration
+if "sqlite" in settings.DATABASE_URL.lower():
+    # SQLite configuration
+    engine = create_engine(
+        settings.DATABASE_URL,
+        echo=settings.ENVIRONMENT == "development",
+        connect_args={"check_same_thread": False}
+    )
+else:
+    # PostgreSQL/Cloud SQL configuration
+    engine = create_engine(
+        settings.DATABASE_URL,
+        pool_size=settings.DATABASE_POOL_SIZE,
+        max_overflow=settings.DATABASE_MAX_OVERFLOW,
+        echo=settings.ENVIRONMENT == "development",
+        connect_args={
+            "connect_timeout": 10,
+            "application_name": "ai-hiring-platform"
+        }
+    )
 
 # Create SessionLocal class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

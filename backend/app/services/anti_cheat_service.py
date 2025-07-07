@@ -10,8 +10,16 @@ import logging
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 import asyncio
-from google.cloud import monitoring_v3
-from google.cloud import logging as cloud_logging
+
+# Optional Google Cloud imports
+try:
+    from google.cloud import monitoring_v3
+    from google.cloud import logging as cloud_logging
+    GOOGLE_CLOUD_AVAILABLE = True
+except ImportError:
+    GOOGLE_CLOUD_AVAILABLE = False
+    monitoring_v3 = None
+    cloud_logging = None
 
 from app.core.config import settings
 
@@ -36,10 +44,16 @@ class AntiCheatService:
             }
         }
         
-        # Initialize monitoring
-        if settings.ENVIRONMENT == "production":
-            self.monitoring_client = monitoring_v3.MetricServiceClient()
-            self.logging_client = cloud_logging.Client()
+        # Initialize monitoring (only in production with Google Cloud available)
+        self.monitoring_client = None
+        self.logging_client = None
+        
+        if settings.ENVIRONMENT == "production" and GOOGLE_CLOUD_AVAILABLE:
+            try:
+                self.monitoring_client = monitoring_v3.MetricServiceClient()
+                self.logging_client = cloud_logging.Client()
+            except Exception as e:
+                logger.warning(f"Failed to initialize Google Cloud monitoring: {e}")
     
     async def monitor_coding_session(self, session_id: str, user_id: int, 
                                    challenge_id: int) -> Dict[str, Any]:

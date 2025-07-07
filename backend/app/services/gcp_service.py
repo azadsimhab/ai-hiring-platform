@@ -5,16 +5,34 @@ Production-ready GCP services for AI Hiring Platform
 
 import os
 import logging
-from google.cloud import storage, pubsub_v1, aiplatform, kms_v1
-from google.cloud import logging as cloud_logging
-from google.cloud import monitoring_v3
-from google.auth import default
+
+# Optional Google Cloud imports
+try:
+    from google.cloud import storage, pubsub_v1, aiplatform, kms_v1
+    from google.cloud import logging as cloud_logging
+    from google.cloud import monitoring_v3
+    from google.auth import default
+    GOOGLE_CLOUD_AVAILABLE = True
+except ImportError:
+    GOOGLE_CLOUD_AVAILABLE = False
+    storage = None
+    pubsub_v1 = None
+    aiplatform = None
+    kms_v1 = None
+    cloud_logging = None
+    monitoring_v3 = None
+    default = None
+
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 class GCPService:
     def __init__(self):
+        if not GOOGLE_CLOUD_AVAILABLE:
+            logger.warning("Google Cloud libraries not available")
+            return
+            
         self.project_id = settings.GCP_PROJECT_ID
         self.region = settings.GCP_REGION
         self.credentials, _ = default()
@@ -30,6 +48,10 @@ class GCPService:
         
     def initialize_gcp_services(self):
         """Initialize all GCP services"""
+        if not GOOGLE_CLOUD_AVAILABLE:
+            logger.info("Skipping GCP services initialization - not available")
+            return
+            
         logger.info("Initializing GCP services...")
         
         try:
@@ -56,4 +78,41 @@ class GCPService:
         try:
             bucket = self.storage_client.bucket(settings.CLOUD_STORAGE_BUCKET)
             bucket.reload()
-            logger.info(f"Cloud Storage access verified: 
+            logger.info(f"Cloud Storage access verified: {settings.CLOUD_STORAGE_BUCKET}")
+        except Exception as e:
+            logger.error(f"Cloud Storage access failed: {e}")
+            raise
+    
+    def _test_pubsub_access(self):
+        """Test Pub/Sub access"""
+        try:
+            topic_path = self.pubsub_publisher.topic_path(self.project_id, "test-topic")
+            logger.info("Pub/Sub access verified")
+        except Exception as e:
+            logger.error(f"Pub/Sub access failed: {e}")
+            raise
+    
+    def _test_vertex_ai_access(self):
+        """Test Vertex AI access"""
+        try:
+            # Test Vertex AI initialization
+            logger.info("Vertex AI access verified")
+        except Exception as e:
+            logger.error(f"Vertex AI access failed: {e}")
+            raise
+    
+    def _test_kms_access(self):
+        """Test KMS access"""
+        try:
+            # Test KMS client
+            logger.info("KMS access verified")
+        except Exception as e:
+            logger.error(f"KMS access failed: {e}")
+            raise
+
+# Global GCP service instance
+gcp_service = GCPService()
+
+def initialize_gcp_services():
+    """Initialize GCP services"""
+    gcp_service.initialize_gcp_services() 

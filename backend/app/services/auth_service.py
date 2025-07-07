@@ -9,7 +9,14 @@ from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 import logging
-from google.cloud import secretmanager
+
+# Optional Google Cloud import
+try:
+    from google.cloud import secretmanager
+    GOOGLE_CLOUD_AVAILABLE = True
+except ImportError:
+    GOOGLE_CLOUD_AVAILABLE = False
+    secretmanager = None
 
 from app.core.config import settings
 from app.models.user import User, UserRole, UserStatus
@@ -25,7 +32,7 @@ class AuthService:
         
     def _get_secret_key(self) -> str:
         """Get secret key from Google Cloud Secret Manager in production"""
-        if settings.ENVIRONMENT == "production":
+        if settings.ENVIRONMENT == "production" and GOOGLE_CLOUD_AVAILABLE:
             try:
                 client = secretmanager.SecretManagerServiceClient()
                 name = f"projects/{settings.GCP_PROJECT_ID}/secrets/jwt-secret-key/versions/latest"
@@ -151,49 +158,3 @@ class AuthService:
 
 # Global auth service instance
 auth_service = AuthService()
-    @staticmethod
-    def verify_password(plain_password: str, hashed_password: str) -> bool:
-        """Verify a password against its hash"""
-        # For now, just do a simple comparison
-        return plain_password == hashed_password
-    
-    @staticmethod
-    def get_password_hash(password: str) -> str:
-        """Hash a password"""
-        # For now, just return the password as-is
-        return password
-    
-    @staticmethod
-    def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-        """Create a JWT access token"""
-        # For now, just return a simple token
-        return "test_token_123"
-    
-    @staticmethod
-    def verify_token(token: str) -> dict:
-        """Verify and decode a JWT token"""
-        # For now, just return mock data
-        return {"sub": 1, "email": "test@example.com", "role": "viewer"}
-    
-    @staticmethod
-    def authenticate_user(db: Session, email: str, password: str):
-        """Authenticate a user with email and password"""
-        # For now, just return mock user data
-        return {
-            "id": 1,
-            "email": email,
-            "role": "viewer"
-        }
-    
-    @staticmethod
-    def get_current_user(
-        credentials: HTTPAuthorizationCredentials = Depends(security),
-        db: Session = Depends(get_db)
-    ):
-        """Get the current authenticated user"""
-        # For now, just return mock user data
-        return {
-            "id": 1,
-            "email": "test@example.com",
-            "role": "viewer"
-        }

@@ -4,15 +4,23 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from contextlib import asynccontextmanager
 import logging
 import time
-from google.cloud import logging as cloud_logging
+import hashlib
 
 from app.core.config import settings
 from app.middleware.security import security_middleware
 
 # Configure logging
 if settings.ENVIRONMENT == "production":
-    client = cloud_logging.Client()
-    client.setup_logging()
+    try:
+        from google.cloud import logging as cloud_logging
+        client = cloud_logging.Client()
+        client.setup_logging()
+    except ImportError:
+        # Fallback to standard logging if Google Cloud logging is not available
+        logging.basicConfig(
+            level=getattr(logging, settings.LOG_LEVEL),
+            format=settings.LOG_FORMAT
+        )
 else:
     logging.basicConfig(
         level=getattr(logging, settings.LOG_LEVEL),
