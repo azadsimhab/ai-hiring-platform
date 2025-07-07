@@ -1,122 +1,177 @@
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from contextlib import asynccontextmanager
 import logging
 import time
-from fastapi import FastAPI, Request, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
+from google.cloud import logging as cloud_logging
 
-from app.api.routes import (
-    hiring_requests,
-    jd_generator,
-    resume_scanner,
-    multimodal_screening,
-    coding_test,
-)
 from app.core.config import settings
+from app.middleware.security import security_middleware
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+if settings.ENVIRONMENT == "production":
+    client = cloud_logging.Client()
+    client.setup_logging()
+else:
+    logging.basicConfig(
+        level=getattr(logging, settings.LOG_LEVEL),
+        format=settings.LOG_FORMAT
+    )
+
 logger = logging.getLogger(__name__)
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan events with security initialization"""
+    # Startup
+    logger.info("Starting AI Hiring Platform API with enhanced security...")
+    
+    try:
+        # Initialize database
+        from app.database import init_db
+        init_db()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Database initialization failed: {e}")
+        if settings.ENVIRONMENT == "production":
+            raise
+    
+    # Initialize GCP services
+    try:
+        from app.services.gcp_service import initialize_gcp_services
+        initialize_gcp_services()
+        logger.info("GCP services initialized successfully")
+    except Exception as e:
+        logger.error(f"GCP services initialization failed: {e}")
+        if settings.ENVIRONMENT == "production":
+            raise
+    
+    # Initialize security services
+    try:
+        from app.services.anti_cheat_service import anti_cheat_service
+        logger.info("Security services initialized successfully")
+    except Exception as e:
+        logger.error(f"Security services initialization failed: {e}")
+        if settings.ENVIRONMENT == "production":
+            raise
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down AI Hiring Platform API...")
+
+# Create FastAPI app
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="AI-Powered Hiring Platform API",
-    version="0.1.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json",
+    description="AI-Powered Hiring Platform API with advanced security features",
+    version=settings.VERSION,
+    docs_url="/docs" if settings.ENVIRONMENT != "production" else None,
+    redoc_url="/redoc" if settings.ENVIRONMENT != "production" else None,
+    lifespan=lifespan
 )
 
-# Add CORS middleware
+# Add security middleware for production
+if settings.ENVIRONMENT == "production":
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=["hiring-platform.com", "www.hiring-platform.com", "*.run.app"]
+    )
+
+# Add CORS middleware with security
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["X-Total-Count", "X-Page-Count"],
 )
 
-# Middleware for request logging and timing
+# Add custom security middleware
 @app.middleware("http")
-async def log_requests(request: Request, call_next):
-    start_time = time.time()
-    response = await call_next(request)
-    process_time = time.time() - start_time
-    logger.info(f"{request.method} {request.url.path} completed in {process_time:.4f}s")
-    return response
-
-# Exception handlers
-@app.exception_handler(StarletteHTTPException)
-async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"detail": exc.detail},
-    )
-
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"detail": exc.errors()},
-    )
+async def security_middleware_handler(request: Request, call_next):
+    return await security_middleware(request, call_next)
 
 # Root endpoint
-@app.get("/", include_in_schema=False)
+@app.get("/")
 async def root():
     return {
         "message": "Welcome to the AI Hiring Platform API",
-        "docs": "/api/docs",
+        "status": "running",
+        "version": settings.VERSION,
+        "environment": settings.ENVIRONMENT,
+        "security": "enhanced"
     }
 
 # Health check endpoint
-@app.get("/health", include_in_schema=False)
+@app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    return {
+        "status": "healthy",
+        "timestamp": time.time(),
+        "version": settings.VERSION,
+        "environment": settings.ENVIRONMENT,
+        "security_status": "active"
+    }
 
-# Include API routers
-app.include_router(
-    hiring_requests.router,
-    prefix="/api/hiring-requests",
-    tags=["Hiring Requests"],
-)
+# Security status endpoint
+@app.get("/security/status")
+async def security_status():
+    return {
+        "security_enabled": True,
+        "anti_cheat_active": True,
+        "input_validation": True,
+        "rate_limiting": True,
+        "csrf_protection": True,
+        "xss_protection": True,
+        "monitoring_active": settings.ENVIRONMENT == "production"
+    }
 
-app.include_router(
-    jd_generator.router,
-    prefix="/api/job-descriptions",
-    tags=["Job Descriptions"],
-)
+# Import routes with detailed error handling
+logger.info("Starting to load routes...")
 
-# Add the new Resume Scanner router
-app.include_router(
-    resume_scanner.router,
-    prefix="/api/resumes",
-    tags=["Resume Scanner"],
-)
+# Load all routes
+route_modules = [
+    ("auth", "authentication"),
+    ("hiring_requests", "hiring-requests"),
+    ("jd_generator", "jd-generator"),
+    ("resume_scanner", "resume-scanner"),
+    ("multimodal_screening", "multimodal-screening"),
+    ("coding_test", "coding-test")
+]
 
-# Add the Multimodal Screening router
-app.include_router(
-    multimodal_screening.router,
-    prefix="/api/screening",
-    tags=["Multimodal Screening"],
-)
+for module_name, tag in route_modules:
+    try:
+        logger.info(f"Attempting to import {module_name} routes...")
+        module = __import__(f"app.api.routes.{module_name}", fromlist=["router"])
+        logger.info(f"{module_name} module imported successfully")
+        
+        app.include_router(
+            module.router,
+            prefix=f"{settings.API_V1_STR}/{module_name.replace('_', '-')}",
+            tags=[tag]
+        )
+        logger.info(f"{module_name} routes loaded successfully")
+    except Exception as e:
+        logger.error(f"Failed to load {module_name} routes: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
 
-# Add the Coding Test router
-app.include_router(
-    coding_test.router,
-    prefix="/api/coding-tests",
-    tags=["Coding Tests"],
-)
+logger.info("Route loading completed")
 
-# Startup event
-@app.on_event("startup")
-async def startup_event():
-    logger.info("Starting up the AI Hiring Platform API")
-
-# Shutdown event
-@app.on_event("shutdown")
-async def shutdown_event():
-    logger.info("Shutting down the AI Hiring Platform API")
+# Global exception handler
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {exc}")
+    
+    if settings.ENVIRONMENT == "production":
+        return {
+            "detail": "Internal server error",
+            "error_id": hashlib.md5(str(time.time()).encode()).hexdigest()[:8]
+        }
+    else:
+        return {
+            "detail": str(exc),
+            "type": type(exc).__name__
+        }

@@ -1,408 +1,201 @@
-import os
-import logging
-import asyncio
-from typing import Optional, Union, BinaryIO
-from datetime import datetime, timedelta
+"""
+Storage Service with Google Cloud Storage Integration
+Handles file uploads, downloads, and management
+"""
 
+import os
+import uuid
+import mimetypes
+from typing import Optional, List, Dict, Any
+from fastapi import UploadFile, HTTPException
 from google.cloud import storage
-from google.cloud.exceptions import GoogleCloudError
-from google.auth.exceptions import DefaultCredentialsError
+from google.cloud.exceptions import NotFound
+import logging
 
 from app.core.config import settings
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
-# Default bucket name from settings
-DEFAULT_BUCKET_NAME = getattr(settings, "GCP_STORAGE_BUCKET", "ai-hiring-platform-uploads")
-
-# Default expiration time for signed URLs (in seconds)
-DEFAULT_URL_EXPIRATION = 3600  # 1 hour
-
-
 class StorageService:
-    """Service for handling file storage operations with Google Cloud Storage"""
-    
-    _instance = None
-    _client = None
-    
-    def __new__(cls):
-        """Singleton pattern to ensure only one instance of the storage client exists"""
-        if cls._instance is None:
-            cls._instance = super(StorageService, cls).__new__(cls)
+    def __init__(self):
+        self.client = storage.Client(project=settings.GCP_PROJECT_ID)
+        self.buckets = {
+            'resumes': settings.CLOUD_STORAGE_RESUMES,
+            'videos': settings.CLOUD_STORAGE_VIDEOS,
+            'logs': settings.CLOUD_STORAGE_LOGS,
+            'backups': settings.CLOUD_STORAGE_BACKUPS,
+            'general': settings.CLOUD_STORAGE_BUCKET
+        }
+        
+        # Ensure buckets exist
+        self._ensure_buckets_exist()
+        
+    def _ensure_buckets_exist(self):
+        """Ensure all required buckets exist"""
+        for bucket_name in self.buckets.values():
             try:
-                # Initialize the storage client
-                cls._client = storage.Client()
-                logger.info("Google Cloud Storage client initialized successfully")
-            except DefaultCredentialsError as e:
-                logger.error(f"Failed to initialize Google Cloud Storage client: {str(e)}")
-                logger.warning("Using local file system fallback for storage")
-                cls._client = None
+                bucket = self.client.bucket(bucket_name)
+                if not bucket.exists():
+                    bucket.create()
+                    logger.info(f"Created bucket: {bucket_name}")
             except Exception as e:
-                logger.error(f"Unexpected error initializing storage client: {str(e)}")
-                cls._client = None
-        return cls._instance
+                logger.error(f"Error ensuring bucket exists {bucket_name}: {e}")
     
-    @property
-    def client(self):
-        """Get the storage client instance"""
-        return self._client
-    
-    def get_bucket(self, bucket_name: Optional[str] = None):
-        """Get a bucket by name"""
-        if not self.client:
-            raise ValueError("Storage client not initialized")
-        
-        bucket_name = bucket_name or DEFAULT_BUCKET_NAME
-        return self.client.bucket(bucket_name)
-    
-    async def upload_file(
-        self, 
-        file_path: str, 
-        file_content: Union[bytes, BinaryIO], 
-        content_type: Optional[str] = None,
-        bucket_name: Optional[str] = None
-    ) -> str:
-        """
-        Upload a file to Google Cloud Storage
-        
-        Args:
-            file_path: The path/name for the file in storage
-            file_content: The file content as bytes or file-like object
-            content_type: The MIME type of the file
-            bucket_name: Optional bucket name (uses default if not provided)
-            
-        Returns:
-            The public URL of the uploaded file
-        """
+    async def upload_file(self, file: UploadFile, bucket_type: str = 'general', 
+                         folder: str = 'uploads') -> Dict[str, Any]:
+        """Upload file to Google Cloud Storage"""
         try:
-            if not self.client:
-                return await self._local_upload_fallback(file_path, file_content)
+            # Validate file type
+            if not self._is_allowed_file(file.filename):
+                raise HTTPException(
+                    status_code=400,
+                    detail="File type not allowed"
+                )
             
-            # Run in an executor to avoid blocking the event loop
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: self._upload_file_sync(file_path, file_content, content_type, bucket_name)
-            )
+            # Generate unique filename
+            file_extension = os.path.splitext(file.filename)[1]
+            unique_filename = f"{folder}/{uuid.uuid4()}{file_extension}"
+            
+            # Get bucket
+            bucket_name = self.buckets.get(bucket_type, self.buckets['general'])
+            bucket = self.client.bucket(bucket_name)
+            blob = bucket.blob(unique_filename)
+            
+            # Set content type
+            content_type = mimetypes.guess_type(file.filename)[0]
+            if content_type:
+                blob.content_type = content_type
+            
+            # Upload file
+            content = await file.read()
+            blob.upload_from_string(content)
+            
+            # Make blob publicly readable (for certain file types)
+            if bucket_type in ['resumes', 'videos']:
+                blob.make_public()
+            
+            result = {
+                "filename": unique_filename,
+                "original_filename": file.filename,
+                "bucket": bucket_name,
+                "size": len(content),
+                "content_type": content_type,
+                "public_url": blob.public_url if blob.is_public else None,
+                "gs_uri": f"gs://{bucket_name}/{unique_filename}"
+            }
+            
+            logger.info(f"File uploaded successfully: {result['filename']}")
             return result
+            
         except Exception as e:
-            logger.error(f"Error uploading file to {file_path}: {str(e)}")
-            raise
-    
-    def _upload_file_sync(
-        self, 
-        file_path: str, 
-        file_content: Union[bytes, BinaryIO], 
-        content_type: Optional[str] = None,
-        bucket_name: Optional[str] = None
-    ) -> str:
-        """Synchronous version of upload_file for use with executor"""
-        bucket = self.get_bucket(bucket_name)
-        blob = bucket.blob(file_path)
-        
-        # Set content type if provided
-        if content_type:
-            blob.content_type = content_type
-        
-        # Upload the file
-        if hasattr(file_content, 'read'):
-            # If it's a file-like object
-            blob.upload_from_file(file_content)
-        else:
-            # If it's bytes
-            blob.upload_from_string(file_content)
-        
-        logger.info(f"File uploaded successfully to {file_path}")
-        return blob.public_url
-    
-    async def download_file(
-        self, 
-        file_path: str, 
-        bucket_name: Optional[str] = None
-    ) -> bytes:
-        """
-        Download a file from Google Cloud Storage
-        
-        Args:
-            file_path: The path/name of the file in storage
-            bucket_name: Optional bucket name (uses default if not provided)
-            
-        Returns:
-            The file content as bytes
-        """
-        try:
-            if not self.client:
-                return await self._local_download_fallback(file_path)
-            
-            # Run in an executor to avoid blocking the event loop
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: self._download_file_sync(file_path, bucket_name)
+            logger.error(f"Error uploading file: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to upload file"
             )
-            return result
-        except Exception as e:
-            logger.error(f"Error downloading file from {file_path}: {str(e)}")
-            raise
     
-    def _download_file_sync(
-        self, 
-        file_path: str, 
-        bucket_name: Optional[str] = None
-    ) -> bytes:
-        """Synchronous version of download_file for use with executor"""
-        bucket = self.get_bucket(bucket_name)
-        blob = bucket.blob(file_path)
-        
-        # Download the file
-        content = blob.download_as_bytes()
-        logger.info(f"File downloaded successfully from {file_path}")
-        return content
-    
-    async def get_signed_url(
-        self, 
-        file_path: str, 
-        expiration: int = DEFAULT_URL_EXPIRATION,
-        bucket_name: Optional[str] = None
-    ) -> str:
-        """
-        Generate a signed URL for accessing a file
-        
-        Args:
-            file_path: The path/name of the file in storage
-            expiration: URL expiration time in seconds
-            bucket_name: Optional bucket name (uses default if not provided)
-            
-        Returns:
-            A signed URL for the file
-        """
+    def download_file(self, filename: str, bucket_type: str = 'general') -> bytes:
+        """Download file from Google Cloud Storage"""
         try:
-            if not self.client:
-                return await self._local_url_fallback(file_path)
+            bucket_name = self.buckets.get(bucket_type, self.buckets['general'])
+            bucket = self.client.bucket(bucket_name)
+            blob = bucket.blob(filename)
             
-            # Run in an executor to avoid blocking the event loop
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: self._get_signed_url_sync(file_path, expiration, bucket_name)
+            if not blob.exists():
+                raise HTTPException(
+                    status_code=404,
+                    detail="File not found"
+                )
+            
+            return blob.download_as_bytes()
+            
+        except Exception as e:
+            logger.error(f"Error downloading file: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to download file"
             )
-            return result
-        except Exception as e:
-            logger.error(f"Error generating signed URL for {file_path}: {str(e)}")
-            raise
     
-    def _get_signed_url_sync(
-        self, 
-        file_path: str, 
-        expiration: int = DEFAULT_URL_EXPIRATION,
-        bucket_name: Optional[str] = None
-    ) -> str:
-        """Synchronous version of get_signed_url for use with executor"""
-        bucket = self.get_bucket(bucket_name)
-        blob = bucket.blob(file_path)
-        
-        # Generate signed URL
-        url = blob.generate_signed_url(
-            version="v4",
-            expiration=datetime.utcnow() + timedelta(seconds=expiration),
-            method="GET"
-        )
-        
-        logger.info(f"Generated signed URL for {file_path} (expires in {expiration} seconds)")
-        return url
-    
-    async def delete_file(
-        self, 
-        file_path: str, 
-        bucket_name: Optional[str] = None
-    ) -> bool:
-        """
-        Delete a file from Google Cloud Storage
-        
-        Args:
-            file_path: The path/name of the file in storage
-            bucket_name: Optional bucket name (uses default if not provided)
-            
-        Returns:
-            True if deletion was successful, False otherwise
-        """
+    def delete_file(self, filename: str, bucket_type: str = 'general') -> bool:
+        """Delete file from Google Cloud Storage"""
         try:
-            if not self.client:
-                return await self._local_delete_fallback(file_path)
+            bucket_name = self.buckets.get(bucket_type, self.buckets['general'])
+            bucket = self.client.bucket(bucket_name)
+            blob = bucket.blob(filename)
             
-            # Run in an executor to avoid blocking the event loop
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: self._delete_file_sync(file_path, bucket_name)
-            )
-            return result
-        except Exception as e:
-            logger.error(f"Error deleting file {file_path}: {str(e)}")
-            raise
-    
-    def _delete_file_sync(
-        self, 
-        file_path: str, 
-        bucket_name: Optional[str] = None
-    ) -> bool:
-        """Synchronous version of delete_file for use with executor"""
-        bucket = self.get_bucket(bucket_name)
-        blob = bucket.blob(file_path)
-        
-        # Delete the file
-        blob.delete()
-        logger.info(f"File deleted successfully: {file_path}")
-        return True
-    
-    async def check_file_exists(
-        self, 
-        file_path: str, 
-        bucket_name: Optional[str] = None
-    ) -> bool:
-        """
-        Check if a file exists in Google Cloud Storage
-        
-        Args:
-            file_path: The path/name of the file in storage
-            bucket_name: Optional bucket name (uses default if not provided)
-            
-        Returns:
-            True if the file exists, False otherwise
-        """
-        try:
-            if not self.client:
-                return await self._local_exists_fallback(file_path)
-            
-            # Run in an executor to avoid blocking the event loop
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: self._check_file_exists_sync(file_path, bucket_name)
-            )
-            return result
-        except Exception as e:
-            logger.error(f"Error checking if file exists {file_path}: {str(e)}")
-            return False
-    
-    def _check_file_exists_sync(
-        self, 
-        file_path: str, 
-        bucket_name: Optional[str] = None
-    ) -> bool:
-        """Synchronous version of check_file_exists for use with executor"""
-        bucket = self.get_bucket(bucket_name)
-        blob = bucket.blob(file_path)
-        return blob.exists()
-    
-    # Local filesystem fallback methods for development/testing
-    async def _local_upload_fallback(self, file_path: str, file_content: Union[bytes, BinaryIO]) -> str:
-        """Fallback to local filesystem for uploads when GCS is not available"""
-        try:
-            # Create local storage directory if it doesn't exist
-            local_storage_dir = os.path.join(os.getcwd(), "local_storage")
-            os.makedirs(local_storage_dir, exist_ok=True)
-            
-            # Create subdirectories if needed
-            dir_path = os.path.dirname(os.path.join(local_storage_dir, file_path))
-            os.makedirs(dir_path, exist_ok=True)
-            
-            # Write file
-            local_path = os.path.join(local_storage_dir, file_path)
-            mode = "wb"
-            if hasattr(file_content, 'read'):
-                content = file_content.read()
-            else:
-                content = file_content
-                
-            with open(local_path, mode) as f:
-                f.write(content)
-                
-            logger.info(f"File uploaded to local storage: {local_path}")
-            return f"file://{local_path}"
-        except Exception as e:
-            logger.error(f"Error in local file upload fallback: {str(e)}")
-            raise
-    
-    async def _local_download_fallback(self, file_path: str) -> bytes:
-        """Fallback to local filesystem for downloads when GCS is not available"""
-        try:
-            local_path = os.path.join(os.getcwd(), "local_storage", file_path)
-            with open(local_path, "rb") as f:
-                content = f.read()
-            logger.info(f"File downloaded from local storage: {local_path}")
-            return content
-        except Exception as e:
-            logger.error(f"Error in local file download fallback: {str(e)}")
-            raise
-    
-    async def _local_url_fallback(self, file_path: str) -> str:
-        """Fallback to local filesystem for URLs when GCS is not available"""
-        local_path = os.path.join(os.getcwd(), "local_storage", file_path)
-        logger.info(f"Generated local file URL: {local_path}")
-        return f"file://{local_path}"
-    
-    async def _local_delete_fallback(self, file_path: str) -> bool:
-        """Fallback to local filesystem for deletion when GCS is not available"""
-        try:
-            local_path = os.path.join(os.getcwd(), "local_storage", file_path)
-            if os.path.exists(local_path):
-                os.remove(local_path)
-                logger.info(f"File deleted from local storage: {local_path}")
+            if blob.exists():
+                blob.delete()
+                logger.info(f"File deleted: {filename}")
                 return True
             else:
-                logger.warning(f"File not found in local storage: {local_path}")
+                logger.warning(f"File not found for deletion: {filename}")
                 return False
+                
         except Exception as e:
-            logger.error(f"Error in local file deletion fallback: {str(e)}")
+            logger.error(f"Error deleting file: {e}")
             return False
     
-    async def _local_exists_fallback(self, file_path: str) -> bool:
-        """Fallback to local filesystem for existence check when GCS is not available"""
-        local_path = os.path.join(os.getcwd(), "local_storage", file_path)
-        exists = os.path.exists(local_path)
-        return exists
+    def list_files(self, bucket_type: str = 'general', prefix: str = '') -> List[Dict[str, Any]]:
+        """List files in bucket with optional prefix"""
+        try:
+            bucket_name = self.buckets.get(bucket_type, self.buckets['general'])
+            bucket = self.client.bucket(bucket_name)
+            
+            blobs = bucket.list_blobs(prefix=prefix)
+            
+            files = []
+            for blob in blobs:
+                files.append({
+                    "name": blob.name,
+                    "size": blob.size,
+                    "content_type": blob.content_type,
+                    "created": blob.time_created,
+                    "updated": blob.updated,
+                    "public_url": blob.public_url if blob.is_public else None
+                })
+            
+            return files
+            
+        except Exception as e:
+            logger.error(f"Error listing files: {e}")
+            return []
+    
+    def _is_allowed_file(self, filename: str) -> bool:
+        """Check if file type is allowed"""
+        if not filename:
+            return False
+            
+        file_extension = os.path.splitext(filename)[1].lower()
+        return file_extension in settings.ALLOWED_FILE_TYPES
+    
+    def get_signed_url(self, filename: str, bucket_type: str = 'general', 
+                      expiration: int = 3600) -> str:
+        """Generate signed URL for file access"""
+        try:
+            bucket_name = self.buckets.get(bucket_type, self.buckets['general'])
+            bucket = self.client.bucket(bucket_name)
+            blob = bucket.blob(filename)
+            
+            if not blob.exists():
+                raise HTTPException(
+                    status_code=404,
+                    detail="File not found"
+                )
+            
+            url = blob.generate_signed_url(
+                version="v4",
+                expiration=expiration,
+                method="GET"
+            )
+            
+            return url
+            
+        except Exception as e:
+            logger.error(f"Error generating signed URL: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to generate signed URL"
+            )
 
-
-# Create a singleton instance
-_storage_service = StorageService()
-
-# Convenience functions for using the storage service
-async def upload_file(
-    file_path: str, 
-    file_content: Union[bytes, BinaryIO], 
-    content_type: Optional[str] = None,
-    bucket_name: Optional[str] = None
-) -> str:
-    """Upload a file to storage"""
-    return await _storage_service.upload_file(file_path, file_content, content_type, bucket_name)
-
-async def download_file(
-    file_path: str, 
-    bucket_name: Optional[str] = None
-) -> bytes:
-    """Download a file from storage"""
-    return await _storage_service.download_file(file_path, bucket_name)
-
-async def get_file_url(
-    file_path: str, 
-    expiration: int = DEFAULT_URL_EXPIRATION,
-    bucket_name: Optional[str] = None
-) -> str:
-    """Get a signed URL for a file"""
-    return await _storage_service.get_signed_url(file_path, expiration, bucket_name)
-
-async def delete_file(
-    file_path: str, 
-    bucket_name: Optional[str] = None
-) -> bool:
-    """Delete a file from storage"""
-    return await _storage_service.delete_file(file_path, bucket_name)
-
-async def check_file_exists(
-    file_path: str, 
-    bucket_name: Optional[str] = None
-) -> bool:
-    """Check if a file exists in storage"""
-    return await _storage_service.check_file_exists(file_path, bucket_name)
+# Global storage service instance
+storage_service = StorageService()

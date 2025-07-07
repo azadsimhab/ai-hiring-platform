@@ -16,15 +16,17 @@ WORKDIR /app
 
 # Copy package.json and package-lock.json for dependency installation
 # This leverages Docker's layer caching.
-COPY package.json ./
-COPY package-lock.json ./
+COPY package.json ./package.json
+COPY package-lock.json ./package-lock.json
 
-# Install dependencies using 'npm ci' for faster, more reliable builds in CI/CD
-# It uses the exact versions from package-lock.json.
-RUN npm ci
+# Install dependencies using 'npm install' with legacy peer deps to resolve conflicts
+RUN npm install --legacy-peer-deps
 
-# Copy the rest of the application source code into the container
-COPY . .
+# Copy the rest of the frontend application source code into the container
+COPY frontend/public ./public
+COPY frontend/src ./src
+# Uncomment if you have a .env or other config files
+# COPY frontend/.env ./.env
 
 # Build the React application for production.
 # The output will be placed in the /app/build directory.

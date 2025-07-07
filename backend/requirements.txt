@@ -1,45 +1,47 @@
-# backend/requirements.txt
-#
-# This file lists the Python dependencies for the FastAPI backend application.
-# It is used by `pip` to install all required packages.
+# FastAPI and web framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+gunicorn==21.2.0
 
-# --- Core Web Framework ---
-# FastAPI is the main web framework, and Uvicorn is the ASGI server to run it.
-fastapi>=0.104.1
-uvicorn[standard]>=0.24.0
+# Database
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+alembic==1.12.1
 
-# --- Database & ORM ---
-# SQLAlchemy is the ORM for database interaction.
-# Psycopg2 is the adapter for our PostgreSQL database (Cloud SQL).
-# Alembic is used for handling database schema migrations.
-sqlalchemy>=2.0.23
-psycopg2-binary>=2.9.9
-alembic>=1.12.1
+# Authentication and security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
 
-# --- Google Cloud Services ---
-# Client libraries for interacting with various Google Cloud services.
-google-cloud-aiplatform>=1.38.1     # For Vertex AI services, including Gemini
-google-generativeai>=0.3.1          # Specific client for Gemini API
-google-cloud-storage>=2.14.0        # For Cloud Storage (resumes, videos, etc.)
-google-cloud-secret-manager>=2.18.0 # For securely accessing API keys and DB credentials
+# Pydantic and validation
+pydantic==2.5.0
+pydantic-settings==2.1.0
+email-validator==2.1.0
 
-# --- Authentication & Security ---
-# python-jose handles JWT creation and validation.
-# passlib is used for password hashing and verification.
-python-jose[cryptography]>=3.3.0
-passlib[bcrypt]>=1.7.4
+# Google Cloud Platform
+google-cloud-aiplatform==1.38.1
+google-cloud-storage==2.10.0
+google-cloud-pubsub==2.18.4
+google-cloud-kms==2.18.0
+google-auth==2.23.4
 
-# --- Data Validation & Utilities ---
-# Pydantic is used for data validation (core to FastAPI).
-# python-multipart is required for handling file uploads (e.g., resumes).
-pydantic[email]>=2.5.2
-python-multipart>=0.0.6
+# AI and ML
+openai==1.3.7
+anthropic==0.7.7
+langchain==0.0.350
+langchain-google-genai==0.0.5
 
-# --- Document Parsing ---
-# Libraries for extracting text from uploaded resume files.
-PyPDF2>=3.0.1           # For parsing PDF files
-python-docx>=1.1.0      # For parsing .docx files
+# File handling
+python-magic==0.4.27
+Pillow==10.1.0
 
-# --- Utilities ---
-# Tenacity is a general-purpose retrying library, useful for robust API calls.
-tenacity>=8.2.3
+# Utilities
+python-dotenv==1.0.0
+requests==2.31.0
+aiofiles==23.2.1
+
+# Development and testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2

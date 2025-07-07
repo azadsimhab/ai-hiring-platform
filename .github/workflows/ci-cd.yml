@@ -1,0 +1,412 @@
+name: AI Hiring Platform CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+env:
+  GCP_PROJECT_ID: hiringagent
+  GCP_REGION: us-central1
+  GCP_SERVICE_ACCOUNT: hiring-ai@hiringagent.iam.gserviceaccount.com
+
+jobs:
+  # Security and Code Quality Checks
+  security-scan:
+    name: Security & Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install bandit safety pylint black isort mypy
+          
+      - name: Run security scan with Bandit
+        run: |
+          cd backend
+          bandit -r app/ -f json -o bandit-report.json || true
+          
+      - name: Run dependency vulnerability scan
+        run: |
+          cd backend
+          safety check --json --output safety-report.json || true
+          
+      - name: Run code quality checks
+        run: |
+          cd backend
+          black --check app/
+          isort --check-only app/
+          pylint app/ --output-format=json > pylint-report.json || true
+          
+      - name: Run type checking
+        run: |
+          cd backend
+          mypy app/ --json-report mypy-report.json || true
+          
+      - name: Upload security reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-reports
+          path: |
+            backend/bandit-report.json
+            backend/safety-report.json
+            backend/pylint-report.json
+            backend/mypy-report.json
+
+  # Backend Testing
+  backend-test:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+          
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov httpx
+          
+      - name: Setup test environment
+        run: |
+          cd backend
+          echo "DATABASE_URL=postgresql://postgres:test_password@localhost:5432/test_db" > .env.test
+          echo "ENVIRONMENT=test" >> .env.test
+          echo "SECRET_KEY=test-secret-key-for-testing-only" >> .env.test
+          
+      - name: Run backend tests
+        run: |
+          cd backend
+          pytest tests/ -v --cov=app --cov-report=xml --cov-report=html
+        env:
+          DATABASE_URL: postgresql://postgres:test_password@localhost:5432/test_db
+          ENVIRONMENT: test
+          
+      - name: Upload test coverage
+        uses: actions/upload-artifact@v3
+        with:
+          name: backend-coverage
+          path: backend/htmlcov/
+          
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v3
+        with:
+          file: backend/coverage.xml
+          flags: backend
+          name: backend-coverage
+
+  # Frontend Testing
+  frontend-test:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+          
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+          
+      - name: Run frontend tests
+        run: |
+          cd frontend
+          npm test -- --coverage --watchAll=false
+          
+      - name: Upload frontend coverage
+        uses: actions/upload-artifact@v3
+        with:
+          name: frontend-coverage
+          path: frontend/coverage/
+          
+      - name: Upload frontend coverage report
+        uses: codecov/codecov-action@v3
+        with:
+          file: frontend/coverage/lcov.info
+          flags: frontend
+          name: frontend-coverage
+
+  # Build and Push Docker Images
+  build-images:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Login to Google Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: gcr.io
+          username: _json_key
+          password: ${{ secrets.GCP_SA_KEY }}
+          
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./Dockerfile.backend
+          push: true
+          tags: |
+            gcr.io/${{ env.GCP_PROJECT_ID }}/hiring-platform-backend:${{ github.sha }}
+            gcr.io/${{ env.GCP_PROJECT_ID }}/hiring-platform-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./Dockerfile.frontend
+          push: true
+          tags: |
+            gcr.io/${{ env.GCP_PROJECT_ID }}/hiring-platform-frontend:${{ github.sha }}
+            gcr.io/${{ env.GCP_PROJECT_ID }}/hiring-platform-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Deploy to Staging
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build-images]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    environment: staging
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          
+      - name: Deploy backend to Cloud Run (Staging)
+        run: |
+          gcloud run deploy hiring-platform-backend-staging \
+            --image gcr.io/${{ env.GCP_PROJECT_ID }}/hiring-platform-backend:${{ github.sha }} \
+            --region ${{ env.GCP_REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars ENVIRONMENT=staging \
+            --set-env-vars DATABASE_URL=${{ secrets.STAGING_DATABASE_URL }} \
+            --set-env-vars SECRET_KEY=${{ secrets.STAGING_SECRET_KEY }}
+            
+      - name: Deploy frontend to Cloud Run (Staging)
+        run: |
+          gcloud run deploy hiring-platform-frontend-staging \
+            --image gcr.io/${{ env.GCP_PROJECT_ID }}/hiring-platform-frontend:${{ github.sha }} \
+            --region ${{ env.GCP_REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars REACT_APP_API_URL=${{ secrets.STAGING_API_URL }}
+
+  # Deploy to Production
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-images]
+    if: github.event_name == 'release' && github.event.action == 'published'
+    environment: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          
+      - name: Deploy backend to Cloud Run (Production)
+        run: |
+          gcloud run deploy hiring-platform-backend \
+            --image gcr.io/${{ env.GCP_PROJECT_ID }}/hiring-platform-backend:${{ github.sha }} \
+            --region ${{ env.GCP_REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars ENVIRONMENT=production \
+            --set-env-vars DATABASE_URL=${{ secrets.PRODUCTION_DATABASE_URL }} \
+            --set-env-vars SECRET_KEY=${{ secrets.PRODUCTION_SECRET_KEY }} \
+            --set-env-vars OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} \
+            --set-env-vars GOOGLE_AI_API_KEY=${{ secrets.GOOGLE_AI_API_KEY }}
+            
+      - name: Deploy frontend to Cloud Run (Production)
+        run: |
+          gcloud run deploy hiring-platform-frontend \
+            --image gcr.io/${{ env.GCP_PROJECT_ID }}/hiring-platform-frontend:${{ github.sha }} \
+            --region ${{ env.GCP_REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars REACT_APP_API_URL=${{ secrets.PRODUCTION_API_URL }}
+            
+      - name: Update Cloud Load Balancer
+        run: |
+          gcloud compute url-maps update hiring-platform-lb \
+            --default-service hiring-platform-backend \
+            --region ${{ env.GCP_REGION }}
+
+  # Infrastructure as Code (Terraform)
+  terraform:
+    name: Terraform Infrastructure
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.0"
+          
+      - name: Setup Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          
+      - name: Terraform Init
+        run: |
+          cd infrastructure/terraform
+          terraform init
+          
+      - name: Terraform Plan
+        run: |
+          cd infrastructure/terraform
+          terraform plan -out=tfplan
+          
+      - name: Terraform Apply
+        run: |
+          cd infrastructure/terraform
+          terraform apply -auto-approve tfplan
+
+  # Performance Testing
+  performance-test:
+    name: Performance Testing
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Install performance testing tools
+        run: |
+          pip install locust k6
+          
+      - name: Run performance tests
+        run: |
+          cd backend/tests/performance
+          locust -f locustfile.py --host=${{ secrets.STAGING_API_URL }} --headless --users 10 --spawn-rate 2 --run-time 60s
+          
+      - name: Upload performance report
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-report
+          path: backend/tests/performance/reports/
+
+  # Security Compliance Check
+  compliance-check:
+    name: Security Compliance
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: github.event_name == 'release' && github.event.action == 'published'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Run OWASP ZAP security scan
+        uses: zaproxy/action-full-scan@v0.8.0
+        with:
+          target: 'https://hiring-platform-backend-${{ env.GCP_PROJECT_ID }}.${{ env.GCP_REGION }}.run.app'
+          
+      - name: Run container security scan
+        run: |
+          trivy image gcr.io/${{ env.GCP_PROJECT_ID }}/hiring-platform-backend:${{ github.sha }} --format json --output trivy-backend.json
+          trivy image gcr.io/${{ env.GCP_PROJECT_ID }}/hiring-platform-frontend:${{ github.sha }} --format json --output trivy-frontend.json
+          
+      - name: Upload security scan reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-scan-reports
+          path: |
+            trivy-backend.json
+            trivy-frontend.json
+
+  # Notifications
+  notify:
+    name: Send Notifications
+    runs-on: ubuntu-latest
+    needs: [deploy-production, compliance-check]
+    if: always()
+    steps:
+      - name: Notify Slack on Success
+        if: success()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          text: '🎉 AI Hiring Platform deployed successfully to production!'
+          
+      - name: Notify Slack on Failure
+        if: failure()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          text: '❌ AI Hiring Platform deployment failed!'
+          
+      - name: Send email notification
+        if: always()
+        run: |
+          echo "Deployment status: ${{ job.status }}" | mail -s "AI Hiring Platform Deployment" ${{ secrets.NOTIFICATION_EMAIL }} 

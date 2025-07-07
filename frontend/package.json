@@ -11,6 +11,8 @@
     "@react-three/drei": "^9.88.17",
     "@react-three/fiber": "^8.15.11",
     "@react-three/postprocessing": "^3.0.4",
+    "ajv": "^6.12.6",
+    "ajv-keywords": "^3.5.2",
     "axios": "^1.6.2",
     "framer-motion": "^10.16.5",
     "gsap": "^3.12.2",
@@ -56,4 +58,4 @@
       "last 1 safari version"
     ]
   }
-}
+} 
