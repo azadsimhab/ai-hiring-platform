@@ -5,9 +5,18 @@ from contextlib import asynccontextmanager
 import logging
 import time
 import hashlib
+from google.oauth2 import id_token
+from google.auth.transport import requests
+import jwt
+from datetime import datetime, timedelta
+import os
 
 from app.core.config import settings
 from app.middleware.security import security_middleware
+
+# OAuth Configuration
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+JWT_SECRET = os.getenv("JWT_SECRET")
 
 # Configure logging
 if settings.ENVIRONMENT == "production":
@@ -85,6 +94,9 @@ if settings.ENVIRONMENT == "production":
         TrustedHostMiddleware,
         allowed_hosts=["hiring-platform.com", "www.hiring-platform.com", "*.run.app"]
     )
+else:
+    # Skip host validation in development
+    pass
 
 # Add CORS middleware with security
 app.add_middleware(
@@ -136,6 +148,92 @@ async def security_status():
         "monitoring_active": settings.ENVIRONMENT == "production"
     }
 
+# Google OAuth endpoint
+@app.post("/api/v1/auth/google")
+async def google_oauth_login(request: dict):
+    """Production Google OAuth endpoint"""
+    try:
+        token = request.get("credential")
+        
+        # Verify Google ID token
+        idinfo = id_token.verify_oauth2_token(
+            token, requests.Request(), GOOGLE_CLIENT_ID
+        )
+        
+        # Extract user information
+        google_id = idinfo['sub']
+        email = idinfo['email']
+        name = idinfo['name']
+        picture = idinfo.get('picture', '')
+        
+        # Create or update user in database
+        user = await get_or_create_user(
+            google_id=google_id,
+            email=email,
+            name=name,
+            picture=picture
+        )
+        
+        # Generate JWT token
+        payload = {
+            "user_id": user.id,
+            "email": email,
+            "exp": datetime.utcnow() + timedelta(days=7)
+        }
+        jwt_token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+        
+        return {
+            "success": True,
+            "user": {
+                "id": user.id,
+                "email": email,
+                "name": name,
+                "picture": picture
+            },
+            "token": jwt_token
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid token: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Authentication failed: {e}")
+
+async def get_or_create_user(google_id: str, email: str, name: str, picture: str):
+    """Get existing user or create new one"""
+    from app.database import get_db
+    from app.models.user import User
+    
+    db = next(get_db())
+    
+    # Check if user exists
+    user = db.query(User).filter(
+        (User.google_id == google_id) | (User.email == email)
+    ).first()
+    
+    if user:
+        # Update existing user
+        user.name = name
+        user.picture = picture
+        user.last_login = datetime.utcnow()
+        db.commit()
+        db.refresh(user)
+        return user
+    else:
+        # Create new user
+        new_user = User(
+            google_id=google_id,
+            email=email,
+            name=name,
+            picture=picture,
+            created_at=datetime.utcnow(),
+            last_login=datetime.utcnow(),
+            subscription_plan='free_trial',
+            trial_ends_at=datetime.utcnow() + timedelta(days=14)
+        )
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        return new_user
+
 # Import routes with detailed error handling
 logger.info("Starting to load routes...")
 
@@ -166,6 +264,20 @@ for module_name, tag in route_modules:
         logger.error(f"Failed to load {module_name} routes: {e}")
         import traceback
         logger.error(f"Full traceback: {traceback.format_exc()}")
+
+# Add Google OAuth router
+try:
+    from app.api.routes import google_oauth
+    app.include_router(
+        google_oauth.router,
+        prefix="/api/v1/auth",
+        tags=["authentication"]
+    )
+    logger.info("Google OAuth routes loaded successfully")
+except Exception as e:
+    logger.error(f"Failed to load Google OAuth routes: {e}")
+    import traceback
+    logger.error(f"Full traceback: {traceback.format_exc()}")
 
 logger.info("Route loading completed")
 

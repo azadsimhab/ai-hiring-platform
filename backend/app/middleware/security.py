@@ -83,15 +83,18 @@ class SecurityMiddleware:
                     content={"detail": "Invalid input detected"}
                 )
             
-            # CSRF protection (skip for API tokens)
+            # CSRF protection (skip for API tokens and OAuth endpoints)
             if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
                 auth_header = request.headers.get("Authorization")
-                if not auth_header or not auth_header.startswith("Bearer "):
-                    if not self._validate_csrf_token(request):
-                        return JSONResponse(
-                            status_code=status.HTTP_403_FORBIDDEN,
-                            content={"detail": "CSRF token validation failed"}
-                        )
+                # Skip CSRF for OAuth endpoints and API tokens
+                if (request.url.path == "/api/v1/auth/google" or 
+                    (auth_header and auth_header.startswith("Bearer "))):
+                    pass  # Skip CSRF validation
+                elif not self._validate_csrf_token(request):
+                    return JSONResponse(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        content={"detail": "CSRF token validation failed"}
+                    )
             
             # Process request
             response = await call_next(request)

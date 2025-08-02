@@ -22,9 +22,11 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
-        "http://localhost:3001",
+        "http://localhost:3001", 
+        "http://localhost:8000",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
+        "http://127.0.0.1:8000",
     ]
     
     # Database - Google Cloud SQL
@@ -37,8 +39,16 @@ class Settings(BaseSettings):
     
     # JWT Settings
     SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "your-jwt-secret-key-change-in-production")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    
+    # Google OAuth Settings
+    GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
+    GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
+    
+    # Server Settings
+    PORT: int = int(os.getenv("PORT", "8000"))
     
     # Google Cloud Platform Settings
     GCP_PROJECT_ID: str = os.getenv("GCP_PROJECT_ID", "hiringagent")

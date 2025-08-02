@@ -1,8 +1,9 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, DateTime, ARRAY
+from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from .base import Base
+from app.core.database_types import JSONList
 
 class JobDescription(Base):
     __tablename__ = "job_descriptions"
@@ -11,10 +12,10 @@ class JobDescription(Base):
     hiring_request_id = Column(Integer, ForeignKey("hiring_requests.id"), nullable=True)
     title = Column(String(255), nullable=False)
     overview = Column(Text, nullable=False)
-    responsibilities = Column(ARRAY(Text), nullable=False, default=[])
-    required_qualifications = Column(ARRAY(Text), nullable=False, default=[])
-    preferred_qualifications = Column(ARRAY(Text), nullable=False, default=[])
-    benefits = Column(ARRAY(Text), nullable=False, default=[])
+    responsibilities = Column(JSONList, nullable=False, default=[])
+    required_qualifications = Column(JSONList, nullable=False, default=[])
+    preferred_qualifications = Column(JSONList, nullable=False, default=[])
+    benefits = Column(JSONList, nullable=False, default=[])
     equal_opportunity_statement = Column(Text, nullable=True)
     status = Column(String(50), nullable=False, default="draft")  # draft, published, archived
     ai_generated = Column(Boolean, default=False)
@@ -50,7 +51,7 @@ class InterviewQuestion(Base):
     type = Column(String(50), nullable=False)  # behavioral, technical, situational
     difficulty = Column(String(20), nullable=False)  # easy, medium, hard
     purpose = Column(Text, nullable=True)
-    ideal_answer_points = Column(ARRAY(Text), nullable=False, default=[])
+    ideal_answer_points = Column(JSONList, nullable=False, default=[])
     ai_generated = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

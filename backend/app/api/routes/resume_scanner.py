@@ -10,7 +10,7 @@ class ResumeBase(BaseModel):
     file_name: str
     file_type: str
 
-class Resume(ResumeBase):
+class ResumeResponse(ResumeBase):
     id: int
     processing_status: str
     ai_processed: bool
@@ -19,7 +19,7 @@ class Resume(ResumeBase):
     class Config:
         from_attributes = True
 
-class CandidateProfile(BaseModel):
+class CandidateProfileResponse(BaseModel):
     id: int
     name: str
     email: str
@@ -34,12 +34,12 @@ candidates_db = []
 async def resume_scanner_root():
     return {"message": "Resume Scanner API root"}
 
-@router.get("/resumes", response_model=List[Resume])
+@router.get("/resumes", response_model=List[ResumeResponse])
 async def get_resumes():
     """Get all resumes"""
     return resumes_db
 
-@router.post("/upload", response_model=Resume)
+@router.post("/upload", response_model=ResumeResponse)
 async def upload_resume(file: UploadFile = File(...)):
     """Upload a resume file"""
     new_resume = {
@@ -53,7 +53,7 @@ async def upload_resume(file: UploadFile = File(...)):
     resumes_db.append(new_resume)
     return new_resume
 
-@router.get("/candidates", response_model=List[CandidateProfile])
+@router.get("/candidates", response_model=List[CandidateProfileResponse])
 async def get_candidates():
     """Get all candidate profiles"""
     return candidates_db

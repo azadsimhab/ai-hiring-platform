@@ -123,7 +123,7 @@ export function FinalDecisionStep({ onComplete, onBack, workflowData, isActive }
       
       // Calculate metrics
       const totalCandidates = candidatesData.length;
-      const averageScore = candidatesData.reduce((acc, c) => acc + c.overallScore, 0) / totalCandidates;
+      const averageScore = candidatesData.reduce((acc: number, c: any) => acc + c.overallScore, 0) / totalCandidates;
       
       setMetrics({
         totalCandidates,
@@ -159,7 +159,7 @@ export function FinalDecisionStep({ onComplete, onBack, workflowData, isActive }
             finalDecision: decision,
             decisionReason: reason || (decision === 'hired' ? 'Strong candidate with excellent qualifications' : 'Does not meet current requirements'),
             decisionDate: new Date().toISOString(),
-            ...(decision === 'hired' && {
+            ...(decision === 'hired' ? {
               compensation: {
                 baseSalary: 120000 + Math.floor(Math.random() * 30000),
                 equity: 0.1 + Math.random() * 0.2,
@@ -172,7 +172,7 @@ export function FinalDecisionStep({ onComplete, onBack, workflowData, isActive }
                 'Month 1: Mentorship program and skill development',
                 'Month 3: Performance review and goal setting'
               ]
-            }
+            } : {})
           }
         : c
     ));

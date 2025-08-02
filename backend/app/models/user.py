@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship
 from .base import BaseModel
 import enum
 from .hiring_request import HiringRequest
+from datetime import datetime
 
 class UserRole(str, enum.Enum):
     ADMIN = "admin"
@@ -20,14 +21,22 @@ class UserStatus(str, enum.Enum):
 class User(BaseModel):
     __tablename__ = "users"
     
+    # Google OAuth fields
+    google_id = Column(String(255), unique=True, index=True, nullable=True)
+    name = Column(String(255), nullable=True)  # Full name from Google
+    picture = Column(String(500), nullable=True)  # Profile picture URL
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    subscription_plan = Column(String(50), default='free_trial', nullable=False)
+    trial_ends_at = Column(DateTime(timezone=True), nullable=True)
+    
     # Basic information
     email = Column(String(255), unique=True, index=True, nullable=False)
-    username = Column(String(100), unique=True, index=True, nullable=False)
-    first_name = Column(String(100), nullable=False)
-    last_name = Column(String(100), nullable=False)
+    username = Column(String(100), unique=True, index=True, nullable=True)  # Made nullable for OAuth users
+    first_name = Column(String(100), nullable=True)  # Made nullable for OAuth users
+    last_name = Column(String(100), nullable=True)  # Made nullable for OAuth users
     
     # Authentication
-    hashed_password = Column(String(255), nullable=False)
+    hashed_password = Column(String(255), nullable=True)  # Made nullable for OAuth users
     is_verified = Column(Boolean, default=False, nullable=False)
     email_verified_at = Column(DateTime(timezone=True), nullable=True)
     
@@ -61,7 +70,12 @@ class User(BaseModel):
     
     @property
     def full_name(self):
-        return f"{self.first_name} {self.last_name}"
+        if self.name:
+            return self.name
+        elif self.first_name and self.last_name:
+            return f"{self.first_name} {self.last_name}"
+        else:
+            return self.email
     
     @property
     def is_admin(self):

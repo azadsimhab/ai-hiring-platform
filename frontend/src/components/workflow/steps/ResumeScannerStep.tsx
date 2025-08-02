@@ -369,7 +369,7 @@ export function ResumeScannerStep({ onComplete, onBack, workflowData, isActive }
                               variant="secondary"
                               size="sm"
                               onClick={(e) => {
-                                e.stopPropagation();
+                                e?.stopPropagation();
                                 analyzeResume(resume.id);
                               }}
                               disabled={isAnalyzing}

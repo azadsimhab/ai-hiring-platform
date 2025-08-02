@@ -1,13 +1,12 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, DateTime, JSON, ARRAY
+from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from .base import Base
+from .base import BaseModel
 
-class InterviewSession(Base):
+class InterviewSession(BaseModel):
     __tablename__ = "interview_sessions"
     
-    id = Column(Integer, primary_key=True, index=True)
     candidate_id = Column(Integer, ForeignKey("candidates.id"), nullable=False)
     job_description_id = Column(Integer, ForeignKey("job_descriptions.id"), nullable=False)
     interviewer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -25,8 +24,6 @@ class InterviewSession(Base):
     overall_score = Column(Integer, nullable=True)  # 0-100
     decision = Column(String(50), nullable=True)  # hire, reject, maybe
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
     candidate = relationship("Candidate", back_populates="interview_sessions")
@@ -38,10 +35,9 @@ class InterviewSession(Base):
         return f"<InterviewSession(id={self.id}, candidate_id={self.candidate_id}, status='{self.status}')>"
 
 
-class InterviewQuestionResponse(Base):
+class InterviewQuestionResponse(BaseModel):
     __tablename__ = "interview_question_responses"
     
-    id = Column(Integer, primary_key=True, index=True)
     session_id = Column(Integer, ForeignKey("interview_sessions.id"), nullable=False)
     question_id = Column(Integer, ForeignKey("interview_questions.id"), nullable=False)
     question_text = Column(Text, nullable=False)
@@ -51,7 +47,6 @@ class InterviewQuestionResponse(Base):
     ai_analysis = Column(JSON, nullable=True)
     score = Column(Integer, nullable=True)  # 0-100
     feedback = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
     session = relationship("InterviewSession", back_populates="questions")
